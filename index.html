@@ -21,7 +21,7 @@ button.primary{background:#111827;color:#fff;border-color:#111827;width:100%}.ac
 </style>
 </head>
 <body>
-<header><div class="muted">GigPilot · local-first</div><h1>v0.3 Traffic Engine</h1><div class="muted">Reservations, people, places and settings are stored on this device.</div></header>
+<header><div class="muted">GigPilot · local-first</div><h1>v0.3.1 Traffic Engine</h1><div class="muted">Reservations, people, places and settings are stored on this device.</div></header>
 
 <nav class="card tabs">
 <button class="tab active" data-tab="reservations">Reservations</button>
@@ -171,8 +171,7 @@ $('#routeBtn').onclick=async()=>{
 };
 
 $('#backupBtn').onclick=async()=>{let payload={format:'GigPilot Backup',version:2,createdAt:new Date().toISOString(),reservations:await all('reservations'),people:await all('people'),places:await all('places'),settings:(await all('settings')).filter(x=>x.id!=='mapboxToken')};dl(`GigPilot_Backup_${new Date().toISOString().slice(0,10)}.gpb`,JSON.stringify(payload,null,2),'application/json');backupStatus.textContent='✓ Complete GigPilot backup created.'};
-$('#csvBtn').onclick=async()=>{let rows=await all('reservations'),cols=['service','passengerName','date','time','pickupName','pickup','dropoffName','dropoff','notes'],q=v=>'"'+String(v??'').replaceAll('"','""')+'"';dl(`GigPilot_Reservations_${new Date().toISOString().slice(0,10)}.csv`,[cols.join(','),...rows.map(r=>cols.map(c=>q(r[c])).join(','))].join('
-'),'text/csv');backupStatus.textContent='✓ CSV exported.'};
+$('#csvBtn').onclick=async()=>{let rows=await all('reservations'),cols=['service','passengerName','date','time','pickupName','pickup','dropoffName','dropoff','notes'],q=v=>'"'+String(v??'').replaceAll('"','""')+'"';dl(`GigPilot_Reservations_${new Date().toISOString().slice(0,10)}.csv`,[cols.join(','),...rows.map(r=>cols.map(c=>q(r[c])).join(','))].join('\n'),'text/csv');backupStatus.textContent='✓ CSV exported.'};
 $('#restoreBtn').onclick=()=>restoreFile.click();
 $('#restoreFile').onchange=async e=>{let f=e.target.files[0];if(!f)return;try{let d=JSON.parse(await f.text());if(d.format!=='GigPilot Backup'||!Array.isArray(d.reservations))throw Error('Not a valid GigPilot backup');let summary=`${d.reservations.length} reservation(s), ${(d.people||[]).length} people, ${(d.places||[]).length} places`;if(!confirm(`Restore ${summary}? This replaces current GigPilot data.`))return;for(const s of stores)await clear(s);for(const r of d.reservations)await put('reservations',r);for(const p of d.people||[])await put('people',p);for(const p of d.places||[])await put('places',p);for(const s of d.settings||[])await put('settings',s);backupStatus.textContent='✓ GigPilot backup restored.';await refresh()}catch(x){alert('Restore failed: '+x.message)}finally{e.target.value=''}};
 (async()=>{await openDB();await refresh();await showTokenStatus();if('serviceWorker'in navigator)navigator.serviceWorker.register('./sw.js').catch(()=>{})})();
