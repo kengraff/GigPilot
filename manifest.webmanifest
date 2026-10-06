@@ -5,5 +5,5 @@
   "display": "standalone",
   "background_color": "#f8fafc",
   "theme_color": "#111827",
-  "description": "Traffic-aware gig reservation manager"
+  "description": "Local-first gig reservation manager"
 }

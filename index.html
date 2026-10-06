@@ -5,80 +5,111 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#111827">
 <link rel="manifest" href="manifest.webmanifest">
-<title>GigPilot v0.1</title>
+<title>GigPilot v0.2</title>
 <style>
 :root{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#111827;background:#f8fafc}
-*{box-sizing:border-box} body{margin:0;padding:18px;max-width:850px;margin:auto}
-h1{margin:.2rem 0}.muted{color:#64748b}.card{background:white;border:1px solid #dbe2ea;border-radius:16px;padding:16px;margin:14px 0}
-.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px} label{font-size:12px;color:#475569;display:block}
-input,select,textarea,button{font:inherit;font-size:16px} input,select,textarea{width:100%;padding:12px;border:1px solid #cbd5e1;border-radius:11px;background:white;margin-top:5px}
-button{border:1px solid #cbd5e1;border-radius:11px;padding:12px 14px;background:white;font-weight:650;min-height:46px}
-button.primary{background:#111827;color:white;border-color:#111827;width:100%}.actions{display:flex;gap:8px;flex-wrap:wrap}.ride{border-top:1px solid #e2e8f0;padding:13px 0}.ride:first-child{border-top:0}.badge{display:inline-block;border:1px solid #cbd5e1;border-radius:999px;padding:3px 8px;font-size:12px}
-.warn{background:#fff7ed;border-color:#fdba74}.ok{background:#f0fdf4;border-color:#86efac}.danger{background:#fef2f2;border-color:#fca5a5}
-@media(max-width:560px){.grid{grid-template-columns:1fr}body{padding:12px}}
+*{box-sizing:border-box}body{margin:0;padding:16px;max-width:900px;margin:auto}
+h1{margin:.2rem 0}h2{margin-top:0}.muted{color:#64748b}.card{background:#fff;border:1px solid #dbe2ea;border-radius:16px;padding:16px;margin:14px 0}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}label{font-size:12px;color:#475569;display:block}
+input,select,textarea,button{font:inherit;font-size:16px}input,select,textarea{width:100%;padding:12px;border:1px solid #cbd5e1;border-radius:11px;background:#fff;margin-top:5px}
+button{border:1px solid #cbd5e1;border-radius:11px;padding:11px 13px;background:#fff;font-weight:650;min-height:44px}
+button.primary{background:#111827;color:#fff;border-color:#111827;width:100%}.actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.item{border-top:1px solid #e2e8f0;padding:13px 0}.item:first-child{border-top:0}.badge{display:inline-block;border:1px solid #cbd5e1;border-radius:999px;padding:3px 8px;font-size:12px}
+.warn{background:#fff7ed;border-color:#fdba74}.tabs{display:flex;gap:7px;overflow:auto;padding-bottom:2px}.tab.active{background:#111827;color:#fff;border-color:#111827}
+.hidden{display:none}.small{font-size:13px}.summary{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.stat{border:1px solid #e2e8f0;border-radius:12px;padding:10px;text-align:center}.stat strong{display:block;font-size:22px}
+@media(max-width:560px){.grid,.summary{grid-template-columns:1fr}.tabs button{white-space:nowrap}}
 </style>
 </head>
 <body>
-<header><div class="muted">GigPilot · real local build</div><h1>v0.1 Foundation</h1><div class="muted">Reservations are stored in this browser using IndexedDB.</div></header>
+<header><div class="muted">GigPilot · local-first</div><h1>v0.2 People & Places</h1><div class="muted">Reservations, people, places and settings are stored on this device.</div></header>
 
-<section class="card">
-<h2>Add reservation</h2>
-<form id="form">
-<div class="grid">
-<div><label>Type<select id="service"><option>Uber</option><option>Lyft</option><option>Private</option><option>Personal</option><option>Other</option></select></label></div>
-<div><label>Passenger<input id="passenger" placeholder="Nancy"></label></div>
-<div><label>Date<input id="date" type="date" required></label></div>
-<div><label>Pickup time<input id="time" type="time" required></label></div>
-<div><label>Pickup<input id="pickup" placeholder="Home" required></label></div>
-<div><label>Destination<input id="dropoff" placeholder="Food Bank at Saint George's Church" required></label></div>
+<nav class="card tabs">
+<button class="tab active" data-tab="reservations">Reservations</button>
+<button class="tab" data-tab="people">People</button>
+<button class="tab" data-tab="places">Places</button>
+<button class="tab" data-tab="backup">Backup</button>
+</nav>
+
+<main>
+<section id="reservations" class="panel">
+<div class="card"><h2>Add reservation</h2>
+<form id="rideForm"><div class="grid">
+<label>Type<select id="service"><option>Uber</option><option>Lyft</option><option>Private</option><option>Personal</option><option>Other</option></select></label>
+<label>Passenger<select id="ridePerson"><option value="">— none / type later —</option></select></label>
+<label>Date<input id="date" type="date" required></label><label>Pickup time<input id="time" type="time" required></label>
+<label>Pickup place<select id="ridePickup"><option value="">— choose saved place —</option></select></label>
+<label>Destination<select id="rideDropoff"><option value="">— choose saved place —</option></select></label>
 </div>
-<div style="margin-top:10px"><label>Notes<textarea id="notes" rows="2"></textarea></label></div>
-<button class="primary" style="margin-top:12px" type="submit">Save reservation</button>
-</form>
-<div id="saveMsg" class="muted" style="margin-top:8px" aria-live="polite"></div>
+<div class="grid" style="margin-top:10px"><label>Or pickup text<input id="pickupText" placeholder="Use if not saved"></label><label>Or destination text<input id="dropoffText" placeholder="Use if not saved"></label></div>
+<label style="margin-top:10px">Notes<textarea id="notes" rows="2"></textarea></label>
+<button class="primary" style="margin-top:12px">Save reservation</button></form><div id="rideMsg" class="muted small" style="margin-top:8px"></div></div>
+<div class="card"><div class="actions" style="justify-content:space-between"><h2 style="margin:0">Reservations</h2><span id="rideCount" class="badge">0</span></div><div id="rideList"></div></div>
+<div class="card warn"><strong>Traffic not checked</strong><p style="margin-bottom:0">GigPilot will not call a ride SAFE until routing and traffic are connected.</p></div>
 </section>
 
-<section class="card">
-<div class="actions" style="justify-content:space-between;align-items:center"><h2 style="margin:0">Reservations</h2><span id="count" class="badge">0</span></div>
-<div id="rides"><div class="muted">Loading…</div></div>
+<section id="people" class="panel hidden">
+<div class="card"><h2>Add person</h2><form id="personForm"><div class="grid">
+<label>Name<input id="personName" placeholder="Nancy" required></label>
+<label>Nickname / spoken name<input id="personNick" placeholder="Nancy"></label>
+<label>Default pickup place<select id="personPlace"><option value="">— none —</option></select></label>
+<label>Notes<input id="personNotes" placeholder="Optional"></label>
+</div><button class="primary" style="margin-top:12px">Save person</button></form></div>
+<div class="card"><div class="actions" style="justify-content:space-between"><h2 style="margin:0">People</h2><span id="personCount" class="badge">0</span></div><div id="personList"></div></div>
 </section>
 
-<section class="card">
-<h2>Backup & recovery</h2>
-<p class="muted">A .gpb file is a complete GigPilot JSON backup. CSV is a human-readable emergency copy.</p>
-<div class="actions">
-<button id="backup">Create .gpb backup</button>
-<button id="csv">Export CSV</button>
-<button id="restore">Restore .gpb</button>
-<input id="restoreFile" type="file" accept=".gpb,application/json" hidden>
-</div>
-<div id="backupStatus" class="muted" style="margin-top:10px" aria-live="polite">No backup created in this session.</div>
+<section id="places" class="panel hidden">
+<div class="card"><h2>Add place</h2><form id="placeForm"><div class="grid">
+<label>Friendly name<input id="placeName" placeholder="Nancy's Home" required></label>
+<label>Spoken alias<input id="placeAlias" placeholder="Nancy at home"></label>
+<label>Street address<input id="placeAddress" placeholder="Full street address" required></label>
+<label>Notes<input id="placeNotes" placeholder="Optional"></label>
+</div><button class="primary" style="margin-top:12px">Save place</button></form></div>
+<div class="card"><div class="actions" style="justify-content:space-between"><h2 style="margin:0">Places</h2><span id="placeCount" class="badge">0</span></div><div id="placeList"></div></div>
 </section>
 
-<section class="card warn">
-<strong>Safety status</strong>
-<p style="margin-bottom:0">v0.1 intentionally does not label rides SAFE yet. Traffic/routing is not connected, so a time-only check would be misleading.</p>
+<section id="backup" class="panel hidden">
+<div class="card"><h2>Whole-GigPilot backup</h2>
+<div class="summary"><div class="stat"><strong id="bRides">0</strong>Reservations</div><div class="stat"><strong id="bPeople">0</strong>People</div><div class="stat"><strong id="bPlaces">0</strong>Places</div></div>
+<p class="muted">v0.2 backups include reservations, people, places and settings. v0.1 reservation-only backups can also be restored.</p>
+<div class="actions"><button id="backupBtn">Create .gpb backup</button><button id="csvBtn">Export reservations CSV</button><button id="restoreBtn">Restore .gpb</button><input id="restoreFile" type="file" accept=".gpb,application/json" hidden></div>
+<div id="backupStatus" class="muted small" style="margin-top:10px">No backup created in this session.</div></div>
 </section>
+</main>
 
 <script>
-const DB='GigPilotDB', STORE='reservations', VERSION=1;
-let db;
-function openDB(){return new Promise((res,rej)=>{const q=indexedDB.open(DB,VERSION);q.onupgradeneeded=e=>{const d=e.target.result;if(!d.objectStoreNames.contains(STORE))d.createObjectStore(STORE,{keyPath:'id'})};q.onsuccess=e=>{db=e.target.result;res(db)};q.onerror=()=>rej(q.error)})}
-function tx(mode='readonly'){return db.transaction(STORE,mode).objectStore(STORE)}
-function all(){return new Promise((res,rej)=>{const q=tx().getAll();q.onsuccess=()=>res(q.result);q.onerror=()=>rej(q.error)})}
-function put(v){return new Promise((res,rej)=>{const q=tx('readwrite').put(v);q.onsuccess=()=>res();q.onerror=()=>rej(q.error)})}
-function del(id){return new Promise((res,rej)=>{const q=tx('readwrite').delete(id);q.onsuccess=()=>res();q.onerror=()=>rej(q.error)})}
-function clear(){return new Promise((res,rej)=>{const q=tx('readwrite').clear();q.onsuccess=()=>res();q.onerror=()=>rej(q.error)})}
-const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-function prettyDate(d){const [y,m,day]=d.split('-').map(Number);return new Intl.DateTimeFormat('en-US',{weekday:'short',month:'short',day:'numeric',year:'numeric'}).format(new Date(Date.UTC(y,m-1,day)))}
-function prettyTime(t){let[h,m]=t.split(':').map(Number),a=h>=12?'PM':'AM';h=h%12||12;return `${h}:${String(m).padStart(2,'0')} ${a}`}
-async function render(){let rows=await all();rows.sort((a,b)=>(a.date+a.time).localeCompare(b.date+b.time));document.querySelector('#count').textContent=rows.length;const el=document.querySelector('#rides');if(!rows.length){el.innerHTML='<div class="muted">No reservations yet.</div>';return}el.innerHTML=rows.map(r=>`<div class="ride"><div><span class="badge">${esc(r.service)}</span> <strong>${esc(r.passenger||'Reservation')}</strong></div><div style="margin-top:6px">${prettyDate(r.date)} · ${prettyTime(r.time)}</div><div class="muted" style="margin-top:4px">${esc(r.pickup)} → ${esc(r.dropoff)}</div><div class="actions" style="margin-top:8px"><button data-delete="${esc(r.id)}">Delete</button></div></div>`).join('');el.querySelectorAll('[data-delete]').forEach(b=>b.addEventListener('click',async()=>{if(confirm('Delete this reservation?')){await del(b.dataset.delete);render()}}))}
-document.querySelector('#form').addEventListener('submit',async e=>{e.preventDefault();const r={id:crypto.randomUUID(),service:service.value,passenger:passenger.value.trim(),date:date.value,time:time.value,pickup:pickup.value.trim(),dropoff:dropoff.value.trim(),notes:notes.value.trim(),createdAt:new Date().toISOString()};await put(r);e.target.reset();document.querySelector('#saveMsg').textContent='✓ Reservation saved locally.';render()});
-function download(name,text,type){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([text],{type}));a.download=name;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},500)}
-document.querySelector('#backup').addEventListener('click',async()=>{const rows=await all();const payload={format:'GigPilot Backup',version:1,createdAt:new Date().toISOString(),reservations:rows};const day=new Date().toISOString().slice(0,10);download(`GigPilot_Backup_${day}.gpb`,JSON.stringify(payload,null,2),'application/json');backupStatus.textContent=`✓ Complete backup created: ${rows.length} reservation(s). Save the file somewhere outside this device.`});
-document.querySelector('#csv').addEventListener('click',async()=>{const rows=await all();const cols=['service','passenger','date','time','pickup','dropoff','notes'];const q=v=>'\"'+String(v??'').replaceAll('\"','\"\"')+'\"';const csv=[cols.join(','),...rows.map(r=>cols.map(c=>q(r[c])).join(','))].join('\\n');download(`GigPilot_Reservations_${new Date().toISOString().slice(0,10)}.csv`,csv,'text/csv');backupStatus.textContent='✓ CSV exported.'});
-document.querySelector('#restore').addEventListener('click',()=>restoreFile.click());
-document.querySelector('#restoreFile').addEventListener('change',async e=>{const f=e.target.files[0];if(!f)return;try{const data=JSON.parse(await f.text());if(data.format!=='GigPilot Backup'||!Array.isArray(data.reservations))throw Error('Not a valid GigPilot backup');if(!confirm(`Restore ${data.reservations.length} reservation(s)? This will replace the current local reservations.`))return;await clear();for(const r of data.reservations)await put(r);backupStatus.textContent=`✓ Restored ${data.reservations.length} reservation(s).`;render()}catch(err){alert('Restore failed: '+err.message)}finally{e.target.value=''}});
-(async()=>{if(!('indexedDB'in window)){alert('This browser does not support IndexedDB.');return}await openDB();await render();if('serviceWorker'in navigator)navigator.serviceWorker.register('./sw.js').catch(()=>{})})();
+const DB='GigPilotDB', VER=2, stores=['reservations','people','places','settings'];let db;
+const $=s=>document.querySelector(s), esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function openDB(){return new Promise((res,rej)=>{let q=indexedDB.open(DB,VER);q.onupgradeneeded=e=>{let d=e.target.result;for(const s of stores)if(!d.objectStoreNames.contains(s))d.createObjectStore(s,{keyPath:'id'})};q.onsuccess=e=>{db=e.target.result;res()};q.onerror=()=>rej(q.error)})}
+function os(s,m='readonly'){return db.transaction(s,m).objectStore(s)}
+function all(s){return new Promise((r,j)=>{let q=os(s).getAll();q.onsuccess=()=>r(q.result);q.onerror=()=>j(q.error)})}
+function put(s,v){return new Promise((r,j)=>{let q=os(s,'readwrite').put(v);q.onsuccess=()=>r();q.onerror=()=>j(q.error)})}
+function del(s,id){return new Promise((r,j)=>{let q=os(s,'readwrite').delete(id);q.onsuccess=()=>r();q.onerror=()=>j(q.error)})}
+function clear(s){return new Promise((r,j)=>{let q=os(s,'readwrite').clear();q.onsuccess=()=>r();q.onerror=()=>j(q.error)})}
+function fmtDate(d){let[y,m,day]=d.split('-').map(Number);return new Intl.DateTimeFormat('en-US',{weekday:'short',month:'short',day:'numeric',year:'numeric'}).format(new Date(Date.UTC(y,m-1,day)))}
+function fmtTime(t){let[h,m]=t.split(':').map(Number),a=h>=12?'PM':'AM';h=h%12||12;return `${h}:${String(m).padStart(2,'0')} ${a}`}
+function dl(n,t,type){let a=document.createElement('a');a.href=URL.createObjectURL(new Blob([t],{type}));a.download=n;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},500)}
+async function refresh(){
+ const [rides,people,places]=await Promise.all([all('reservations'),all('people'),all('places')]);
+ rides.sort((a,b)=>(a.date+a.time).localeCompare(b.date+b.time));
+ $('#rideCount').textContent=rides.length;$('#personCount').textContent=people.length;$('#placeCount').textContent=places.length;
+ $('#bRides').textContent=rides.length;$('#bPeople').textContent=people.length;$('#bPlaces').textContent=places.length;
+ $('#rideList').innerHTML=rides.length?rides.map(r=>`<div class="item"><span class="badge">${esc(r.service)}</span> <strong>${esc(r.passengerName||r.passenger||'Reservation')}</strong><div>${fmtDate(r.date)} · ${fmtTime(r.time)}</div><div class="muted">${esc(r.pickupName||r.pickup)} → ${esc(r.dropoffName||r.dropoff)}</div><button data-dride="${r.id}" style="margin-top:7px">Delete</button></div>`).join(''):'<p class="muted">No reservations yet.</p>';
+ $('#personList').innerHTML=people.length?people.map(p=>`<div class="item"><strong>${esc(p.name)}</strong>${p.nickname?` <span class="badge">${esc(p.nickname)}</span>`:''}<div class="muted">${esc(p.defaultPlaceName||'No default pickup')}</div><button data-dperson="${p.id}" style="margin-top:7px">Delete</button></div>`).join(''):'<p class="muted">No saved people yet.</p>';
+ $('#placeList').innerHTML=places.length?places.map(p=>`<div class="item"><strong>${esc(p.name)}</strong>${p.alias?` <span class="badge">${esc(p.alias)}</span>`:''}<div class="muted">${esc(p.address)}</div><button data-dplace="${p.id}" style="margin-top:7px">Delete</button></div>`).join(''):'<p class="muted">No saved places yet.</p>';
+ const pop=(sel,arr,label)=>{let v=$(sel).value;$(sel).innerHTML=`<option value="">— ${label} —</option>`+arr.map(x=>`<option value="${x.id}">${esc(x.name)}</option>`).join('');$(sel).value=v};
+ pop('#ridePerson',people,'none / type later');pop('#ridePickup',places,'choose saved place');pop('#rideDropoff',places,'choose saved place');pop('#personPlace',places,'none');
+ document.querySelectorAll('[data-dride]').forEach(b=>b.onclick=async()=>{if(confirm('Delete this reservation?')){await del('reservations',b.dataset.dride);refresh()}});
+ document.querySelectorAll('[data-dperson]').forEach(b=>b.onclick=async()=>{if(confirm('Delete this person? Existing reservations will remain.')){await del('people',b.dataset.dperson);refresh()}});
+ document.querySelectorAll('[data-dplace]').forEach(b=>b.onclick=async()=>{if(confirm('Delete this place? Existing reservations will keep their saved text.')){await del('places',b.dataset.dplace);refresh()}});
+}
+document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));document.querySelectorAll('.panel').forEach(x=>x.classList.add('hidden'));b.classList.add('active');$('#'+b.dataset.tab).classList.remove('hidden')});
+$('#placeForm').onsubmit=async e=>{e.preventDefault();await put('places',{id:crypto.randomUUID(),name:placeName.value.trim(),alias:placeAlias.value.trim(),address:placeAddress.value.trim(),notes:placeNotes.value.trim()});e.target.reset();await refresh()};
+$('#personForm').onsubmit=async e=>{e.preventDefault();let places=await all('places'),p=places.find(x=>x.id===personPlace.value);await put('people',{id:crypto.randomUUID(),name:personName.value.trim(),nickname:personNick.value.trim(),defaultPlaceId:p?.id||'',defaultPlaceName:p?.name||'',notes:personNotes.value.trim()});e.target.reset();await refresh()};
+$('#rideForm').onsubmit=async e=>{e.preventDefault();let [people,places]=await Promise.all([all('people'),all('places')]);let pe=people.find(x=>x.id===ridePerson.value),pu=places.find(x=>x.id===ridePickup.value),dr=places.find(x=>x.id===rideDropoff.value);let pickup=pu?.address||pickupText.value.trim(),dropoff=dr?.address||dropoffText.value.trim();if(!pickup||!dropoff){alert('Choose a saved place or enter text for both pickup and destination.');return}await put('reservations',{id:crypto.randomUUID(),service:service.value,passengerId:pe?.id||'',passengerName:pe?.name||'',date:date.value,time:time.value,pickupPlaceId:pu?.id||'',pickupName:pu?.name||pickupText.value.trim(),pickup,dropoffPlaceId:dr?.id||'',dropoffName:dr?.name||dropoffText.value.trim(),dropoff,notes:notes.value.trim(),createdAt:new Date().toISOString()});e.target.reset();rideMsg.textContent='✓ Reservation saved locally.';await refresh()};
+$('#backupBtn').onclick=async()=>{let payload={format:'GigPilot Backup',version:2,createdAt:new Date().toISOString(),reservations:await all('reservations'),people:await all('people'),places:await all('places'),settings:await all('settings')};dl(`GigPilot_Backup_${new Date().toISOString().slice(0,10)}.gpb`,JSON.stringify(payload,null,2),'application/json');backupStatus.textContent='✓ Complete GigPilot backup created.'};
+$('#csvBtn').onclick=async()=>{let rows=await all('reservations'),cols=['service','passengerName','date','time','pickupName','pickup','dropoffName','dropoff','notes'],q=v=>'"'+String(v??'').replaceAll('"','""')+'"';dl(`GigPilot_Reservations_${new Date().toISOString().slice(0,10)}.csv`,[cols.join(','),...rows.map(r=>cols.map(c=>q(r[c])).join(','))].join('\n'),'text/csv');backupStatus.textContent='✓ CSV exported.'};
+$('#restoreBtn').onclick=()=>restoreFile.click();
+$('#restoreFile').onchange=async e=>{let f=e.target.files[0];if(!f)return;try{let d=JSON.parse(await f.text());if(d.format!=='GigPilot Backup'||!Array.isArray(d.reservations))throw Error('Not a valid GigPilot backup');let summary=`${d.reservations.length} reservation(s), ${(d.people||[]).length} people, ${(d.places||[]).length} places`;if(!confirm(`Restore ${summary}? This replaces current GigPilot data.`))return;for(const s of stores)await clear(s);for(const r of d.reservations)await put('reservations',r);for(const p of d.people||[])await put('people',p);for(const p of d.places||[])await put('places',p);for(const s of d.settings||[])await put('settings',s);backupStatus.textContent='✓ GigPilot backup restored.';await refresh()}catch(x){alert('Restore failed: '+x.message)}finally{e.target.value=''}};
+(async()=>{await openDB();await refresh();if('serviceWorker'in navigator)navigator.serviceWorker.register('./sw.js').catch(()=>{})})();
 </script>
 </body></html>
