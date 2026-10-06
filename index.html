@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#111827">
 <link rel="manifest" href="manifest.webmanifest">
-<title>GigPilot v0.3</title>
+<title>GigPilot v0.4</title>
 <style>
 :root{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#111827;background:#f8fafc}
 *{box-sizing:border-box}body{margin:0;padding:16px;max-width:900px;margin:auto}
@@ -21,7 +21,7 @@ button.primary{background:#111827;color:#fff;border-color:#111827;width:100%}.ac
 </style>
 </head>
 <body>
-<header><div class="muted">GigPilot · local-first</div><h1>v0.3.1 Traffic Engine</h1><div class="muted">Reservations, people, places and settings are stored on this device.</div></header>
+<header><div class="muted">GigPilot · local-first</div><h1>v0.4 Decision Engine</h1><div class="muted">Reservations, people, places and settings are stored on this device.</div></header>
 
 <nav class="card tabs">
 <button class="tab active" data-tab="reservations">Reservations</button>
@@ -38,6 +38,7 @@ button.primary{background:#111827;color:#fff;border-color:#111827;width:100%}.ac
 <label>Type<select id="service"><option>Uber</option><option>Lyft</option><option>Private</option><option>Personal</option><option>Other</option></select></label>
 <label>Passenger<select id="ridePerson"><option value="">— none / type later —</option></select></label>
 <label>Date<input id="date" type="date" required></label><label>Pickup time<input id="time" type="time" required></label>
+<label>Estimated ride duration (minutes)<input id="durationMin" type="number" min="1" step="1" placeholder="e.g. 45" required></label>
 <label>Pickup place<select id="ridePickup"><option value="">— choose saved place —</option></select></label>
 <label>Destination<select id="rideDropoff"><option value="">— choose saved place —</option></select></label>
 </div>
@@ -45,7 +46,11 @@ button.primary{background:#111827;color:#fff;border-color:#111827;width:100%}.ac
 <label style="margin-top:10px">Notes<textarea id="notes" rows="2"></textarea></label>
 <button class="primary" style="margin-top:12px">Save reservation</button></form><div id="rideMsg" class="muted small" style="margin-top:8px"></div></div>
 <div class="card"><div class="actions" style="justify-content:space-between"><h2 style="margin:0">Reservations</h2><span id="rideCount" class="badge">0</span></div><div id="rideList"></div></div>
-<div class="card warn"><strong>Traffic not checked</strong><p style="margin-bottom:0">GigPilot will not call a ride SAFE until routing and traffic are connected.</p></div>
+<div class="card"><h2>Schedule decision engine</h2>
+<p class="muted">Checks each reservation against the one before it. GigPilot uses the earlier ride’s estimated duration, the gap before the next pickup, a live traffic route from the earlier drop-off to the next pickup, and your safety buffer.</p>
+<div class="grid"><label>Safety buffer (minutes)<input id="safetyBuffer" type="number" min="0" step="1" value="15"></label><div><button id="saveBufferBtn" type="button" style="margin-top:17px">Save buffer</button></div></div>
+<button id="evaluateBtn" class="primary" type="button" style="margin-top:12px">Evaluate schedule with traffic</button>
+<div id="decisionStatus" class="muted small" style="margin-top:9px">Not evaluated yet.</div><div id="decisionResults"></div></div>
 </section>
 
 <section id="people" class="panel hidden">
@@ -89,7 +94,7 @@ button.primary{background:#111827;color:#fff;border-color:#111827;width:100%}.ac
 <div id="routeStatus" class="muted small" style="margin-top:10px">Ready.</div>
 <div id="routeResult"></div>
 </div>
-<div class="card warn"><strong>Decision engine not enabled yet</strong><p style="margin-bottom:0">v0.3 verifies live routing first. GigPilot will not label a reservation SAFE until the scheduling decision engine is tested.</p></div>
+<div class="card warn"><strong>Traffic timing note</strong><p style="margin-bottom:0">The decision engine uses the traffic conditions available when you run the check. For future reservations, conditions can change. Recheck closer to departure time.</p></div>
 </section>
 
 <section id="backup" class="panel hidden">
@@ -119,20 +124,22 @@ async function refresh(){
  rides.sort((a,b)=>(a.date+a.time).localeCompare(b.date+b.time));
  $('#rideCount').textContent=rides.length;$('#personCount').textContent=people.length;$('#placeCount').textContent=places.length;
  $('#bRides').textContent=rides.length;$('#bPeople').textContent=people.length;$('#bPlaces').textContent=places.length;
- $('#rideList').innerHTML=rides.length?rides.map(r=>`<div class="item"><span class="badge">${esc(r.service)}</span> <strong>${esc(r.passengerName||r.passenger||'Reservation')}</strong><div>${fmtDate(r.date)} · ${fmtTime(r.time)}</div><div class="muted">${esc(r.pickupName||r.pickup)} → ${esc(r.dropoffName||r.dropoff)}</div><button data-dride="${r.id}" style="margin-top:7px">Delete</button></div>`).join(''):'<p class="muted">No reservations yet.</p>';
- $('#personList').innerHTML=people.length?people.map(p=>`<div class="item"><strong>${esc(p.name)}</strong>${p.nickname?` <span class="badge">${esc(p.nickname)}</span>`:''}<div class="muted">${esc(p.defaultPlaceName||'No default pickup')}</div><button data-dperson="${p.id}" style="margin-top:7px">Delete</button></div>`).join(''):'<p class="muted">No saved people yet.</p>';
- $('#placeList').innerHTML=places.length?places.map(p=>`<div class="item"><strong>${esc(p.name)}</strong>${p.alias?` <span class="badge">${esc(p.alias)}</span>`:''}<div class="muted">${esc(p.address)}</div><button data-dplace="${p.id}" style="margin-top:7px">Delete</button></div>`).join(''):'<p class="muted">No saved places yet.</p>';
+ $('#rideList').innerHTML=rides.length?rides.map(r=>`<div class="item"><span class="badge">${esc(r.service)}</span> <strong>${esc(r.passengerName||r.passenger||'Reservation')}</strong><div>${fmtDate(r.date)} · ${fmtTime(r.time)}${r.durationMin?` · ${esc(r.durationMin)} min est.`:''}</div><div class="muted">${esc(r.pickupName||r.pickup)} → ${esc(r.dropoffName||r.dropoff)}</div><button data-dride="${r.id}" style="margin-top:7px">Delete</button></div>`).join(''):'<p class="muted">No reservations yet.</p>';
+ $('#personList').innerHTML=people.length?people.map(p=>`<div class="item"><strong>${esc(p.name)}</strong>${p.nickname?` <span class="badge">${esc(p.nickname)}</span>`:''}<div class="muted">${esc(p.defaultPlaceName||'No default pickup')}</div><button data-eperson="${p.id}" style="margin-top:7px">Edit</button> <button data-dperson="${p.id}" style="margin-top:7px">Delete</button></div>`).join(''):'<p class="muted">No saved people yet.</p>';
+ $('#placeList').innerHTML=places.length?places.map(p=>`<div class="item"><strong>${esc(p.name)}</strong>${p.alias?` <span class="badge">${esc(p.alias)}</span>`:''}<div class="muted">${esc(p.address)}</div><button data-eplace="${p.id}" style="margin-top:7px">Edit</button> <button data-dplace="${p.id}" style="margin-top:7px">Delete</button></div>`).join(''):'<p class="muted">No saved places yet.</p>';
  const pop=(sel,arr,label)=>{let v=$(sel).value;$(sel).innerHTML=`<option value="">— ${label} —</option>`+arr.map(x=>`<option value="${x.id}">${esc(x.name)}</option>`).join('');$(sel).value=v};
  pop('#ridePerson',people,'none / type later');pop('#ridePickup',places,'choose saved place');pop('#rideDropoff',places,'choose saved place');pop('#personPlace',places,'none');pop('#routeFrom',places,'choose saved place');pop('#routeTo',places,'choose saved place');
+ document.querySelectorAll('[data-eplace]').forEach(b=>b.onclick=async()=>{let p=(await all('places')).find(x=>x.id===b.dataset.eplace);if(!p)return;placeName.value=p.name||'';placeAlias.value=p.alias||'';placeAddress.value=p.address||'';placeNotes.value=p.notes||'';placeForm.dataset.editId=p.id;placeForm.querySelector('button.primary').textContent='Update place';document.querySelector('[data-tab=places]').scrollIntoView({behavior:'smooth'});});
+ document.querySelectorAll('[data-eperson]').forEach(b=>b.onclick=async()=>{let p=(await all('people')).find(x=>x.id===b.dataset.eperson);if(!p)return;personName.value=p.name||'';personNick.value=p.nickname||'';personPlace.value=p.defaultPlaceId||'';personNotes.value=p.notes||'';personForm.dataset.editId=p.id;personForm.querySelector('button.primary').textContent='Update person';document.querySelector('[data-tab=people]').scrollIntoView({behavior:'smooth'});});
  document.querySelectorAll('[data-dride]').forEach(b=>b.onclick=async()=>{if(confirm('Delete this reservation?')){await del('reservations',b.dataset.dride);refresh()}});
  document.querySelectorAll('[data-dperson]').forEach(b=>b.onclick=async()=>{if(confirm('Delete this person? Existing reservations will remain.')){await del('people',b.dataset.dperson);refresh()}});
  document.querySelectorAll('[data-dplace]').forEach(b=>b.onclick=async()=>{if(confirm('Delete this place? Existing reservations will keep their saved text.')){await del('places',b.dataset.dplace);refresh()}});
 }
 document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));document.querySelectorAll('.panel').forEach(x=>x.classList.add('hidden'));b.classList.add('active');$('#'+b.dataset.tab).classList.remove('hidden')});
 $('#ridePerson').onchange=async()=>{let people=await all('people');let pe=people.find(x=>x.id===ridePerson.value);if(pe?.defaultPlaceId){let exists=[...ridePickup.options].some(o=>o.value===pe.defaultPlaceId);if(exists)ridePickup.value=pe.defaultPlaceId}};
-$('#placeForm').onsubmit=async e=>{e.preventDefault();await put('places',{id:crypto.randomUUID(),name:placeName.value.trim(),alias:placeAlias.value.trim(),address:placeAddress.value.trim(),notes:placeNotes.value.trim()});e.target.reset();await refresh()};
-$('#personForm').onsubmit=async e=>{e.preventDefault();let places=await all('places'),p=places.find(x=>x.id===personPlace.value);await put('people',{id:crypto.randomUUID(),name:personName.value.trim(),nickname:personNick.value.trim(),defaultPlaceId:p?.id||'',defaultPlaceName:p?.name||'',notes:personNotes.value.trim()});e.target.reset();await refresh()};
-$('#rideForm').onsubmit=async e=>{e.preventDefault();let [people,places]=await Promise.all([all('people'),all('places')]);let pe=people.find(x=>x.id===ridePerson.value),pu=places.find(x=>x.id===ridePickup.value),dr=places.find(x=>x.id===rideDropoff.value);let pickup=pu?.address||pickupText.value.trim(),dropoff=dr?.address||dropoffText.value.trim();if(!pickup||!dropoff){alert('Choose a saved place or enter text for both pickup and destination.');return}await put('reservations',{id:crypto.randomUUID(),service:service.value,passengerId:pe?.id||'',passengerName:pe?.name||'',date:date.value,time:time.value,pickupPlaceId:pu?.id||'',pickupName:pu?.name||pickupText.value.trim(),pickup,dropoffPlaceId:dr?.id||'',dropoffName:dr?.name||dropoffText.value.trim(),dropoff,notes:notes.value.trim(),createdAt:new Date().toISOString()});e.target.reset();rideMsg.textContent='✓ Reservation saved locally.';await refresh()};
+$('#placeForm').onsubmit=async e=>{e.preventDefault();let id=e.target.dataset.editId||crypto.randomUUID();await put('places',{id,name:placeName.value.trim(),alias:placeAlias.value.trim(),address:placeAddress.value.trim(),notes:placeNotes.value.trim()});delete e.target.dataset.editId;e.target.reset();e.target.querySelector('button.primary').textContent='Save place';await refresh()};
+$('#personForm').onsubmit=async e=>{e.preventDefault();let places=await all('places'),p=places.find(x=>x.id===personPlace.value),id=e.target.dataset.editId||crypto.randomUUID();await put('people',{id,name:personName.value.trim(),nickname:personNick.value.trim(),defaultPlaceId:p?.id||'',defaultPlaceName:p?.name||'',notes:personNotes.value.trim()});delete e.target.dataset.editId;e.target.reset();e.target.querySelector('button.primary').textContent='Save person';await refresh()};
+$('#rideForm').onsubmit=async e=>{e.preventDefault();let [people,places]=await Promise.all([all('people'),all('places')]);let pe=people.find(x=>x.id===ridePerson.value),pu=places.find(x=>x.id===ridePickup.value),dr=places.find(x=>x.id===rideDropoff.value);let pickup=pu?.address||pickupText.value.trim(),dropoff=dr?.address||dropoffText.value.trim();if(!pickup||!dropoff){alert('Choose a saved place or enter text for both pickup and destination.');return}await put('reservations',{id:crypto.randomUUID(),service:service.value,passengerId:pe?.id||'',passengerName:pe?.name||'',date:date.value,time:time.value,durationMin:Number(durationMin.value),pickupPlaceId:pu?.id||'',pickupName:pu?.name||pickupText.value.trim(),pickup,dropoffPlaceId:dr?.id||'',dropoffName:dr?.name||dropoffText.value.trim(),dropoff,notes:notes.value.trim(),createdAt:new Date().toISOString()});e.target.reset();rideMsg.textContent='✓ Reservation saved locally.';await refresh()};
 
 async function getMapboxToken(){let x=await getOne('settings','mapboxToken');return x?.value||''}
 async function showTokenStatus(){let t=await getMapboxToken();mapboxToken.value=t;tokenStatus.textContent=t?'✓ Public Mapbox token saved locally on this device.':'No Mapbox token saved yet.'}
@@ -170,10 +177,33 @@ $('#routeBtn').onclick=async()=>{
  }catch(x){routeStatus.textContent='⚠️ '+x.message;routeResult.innerHTML=''}finally{routeBtn.disabled=false}
 };
 
+
+function rideStartMs(r){let [y,m,d]=r.date.split('-').map(Number),[hh,mm]=r.time.split(':').map(Number);return new Date(y,m-1,d,hh,mm,0,0).getTime()}
+async function loadBuffer(){let x=await getOne('settings','safetyBuffer');safetyBuffer.value=x?.value??15}
+$('#saveBufferBtn').onclick=async()=>{let v=Math.max(0,Number(safetyBuffer.value)||0);await put('settings',{id:'safetyBuffer',value:v});safetyBuffer.value=v;decisionStatus.textContent=`✓ Safety buffer saved: ${v} min.`};
+$('#evaluateBtn').onclick=async()=>{
+ decisionResults.innerHTML='';decisionStatus.textContent='Checking schedule and live traffic…';evaluateBtn.disabled=true;
+ try{
+  let token=await getMapboxToken();if(!token)throw Error('Save your Mapbox public token in Routing first.');
+  let rides=(await all('reservations')).sort((a,b)=>rideStartMs(a)-rideStartMs(b));if(rides.length<2)throw Error('Add at least two reservations to evaluate the schedule.');
+  let buffer=Math.max(0,Number(safetyBuffer.value)||15);await put('settings',{id:'safetyBuffer',value:buffer});let out=[];
+  for(let i=1;i<rides.length;i++){
+   let prev=rides[i-1],next=rides[i];
+   if(!prev.durationMin){out.push(`<div class="item"><strong>UNKNOWN</strong> · ${esc(next.passengerName||next.service)}<div class="muted">Previous ride has no estimated duration. Edit/recreate it with a duration before GigPilot can judge this transition.</div></div>`);continue}
+   let prevEnd=rideStartMs(prev)+Number(prev.durationMin)*60000,gap=Math.round((rideStartMs(next)-prevEnd)/60000);
+   if(!prev.dropoff||!next.pickup){out.push(`<div class="item"><strong>UNKNOWN</strong><div class="muted">Missing drop-off or next pickup address.</div></div>`);continue}
+   try{
+    let [a,b]=await Promise.all([geocodeTemp(prev.dropoff,token),geocodeTemp(next.pickup,token)]),route=await trafficRoute(a.coord,b.coord,token),travel=mins(route.duration),verdict=gap<travel?'CONFLICT':gap<travel+buffer?'TIGHT':'SAFE',margin=gap-travel-buffer;
+    out.push(`<div class="item"><span class="badge"><strong>${verdict}</strong></span> <strong>${esc(prev.passengerName||prev.service)} → ${esc(next.passengerName||next.service)}</strong><div>${fmtDate(next.date)} · next pickup ${fmtTime(next.time)}</div><div class="muted">Previous ride ends about ${new Date(prevEnd).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'})} · Gap ${gap} min · Traffic drive ${travel} min · Buffer ${buffer} min</div><div class="small" style="margin-top:5px">${verdict==='SAFE'?`About ${Math.max(0,margin)} min beyond your buffer.`:verdict==='TIGHT'?`Drive is possible in this traffic snapshot, but your full ${buffer}-min buffer does not fit.`:`Not enough time to drive from the previous drop-off to this pickup in the current traffic snapshot.`}</div></div>`)
+   }catch(x){out.push(`<div class="item"><strong>UNKNOWN</strong><div class="muted">Route check failed: ${esc(x.message)}</div></div>`)}
+  }
+  decisionResults.innerHTML=out.join('');decisionStatus.textContent='✓ Schedule evaluated using current Mapbox traffic. Recheck future rides closer to departure.';
+ }catch(x){decisionStatus.textContent='⚠️ '+x.message}finally{evaluateBtn.disabled=false}
+};
 $('#backupBtn').onclick=async()=>{let payload={format:'GigPilot Backup',version:2,createdAt:new Date().toISOString(),reservations:await all('reservations'),people:await all('people'),places:await all('places'),settings:(await all('settings')).filter(x=>x.id!=='mapboxToken')};dl(`GigPilot_Backup_${new Date().toISOString().slice(0,10)}.gpb`,JSON.stringify(payload,null,2),'application/json');backupStatus.textContent='✓ Complete GigPilot backup created.'};
 $('#csvBtn').onclick=async()=>{let rows=await all('reservations'),cols=['service','passengerName','date','time','pickupName','pickup','dropoffName','dropoff','notes'],q=v=>'"'+String(v??'').replaceAll('"','""')+'"';dl(`GigPilot_Reservations_${new Date().toISOString().slice(0,10)}.csv`,[cols.join(','),...rows.map(r=>cols.map(c=>q(r[c])).join(','))].join('\n'),'text/csv');backupStatus.textContent='✓ CSV exported.'};
 $('#restoreBtn').onclick=()=>restoreFile.click();
 $('#restoreFile').onchange=async e=>{let f=e.target.files[0];if(!f)return;try{let d=JSON.parse(await f.text());if(d.format!=='GigPilot Backup'||!Array.isArray(d.reservations))throw Error('Not a valid GigPilot backup');let summary=`${d.reservations.length} reservation(s), ${(d.people||[]).length} people, ${(d.places||[]).length} places`;if(!confirm(`Restore ${summary}? This replaces current GigPilot data.`))return;for(const s of stores)await clear(s);for(const r of d.reservations)await put('reservations',r);for(const p of d.people||[])await put('people',p);for(const p of d.places||[])await put('places',p);for(const s of d.settings||[])await put('settings',s);backupStatus.textContent='✓ GigPilot backup restored.';await refresh()}catch(x){alert('Restore failed: '+x.message)}finally{e.target.value=''}};
-(async()=>{await openDB();await refresh();await showTokenStatus();if('serviceWorker'in navigator)navigator.serviceWorker.register('./sw.js').catch(()=>{})})();
+(async()=>{await openDB();await refresh();await showTokenStatus();await loadBuffer();if('serviceWorker'in navigator)navigator.serviceWorker.register('./sw.js').catch(()=>{})})();
 </script>
 </body></html>
