@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#111827">
 <link rel="manifest" href="manifest.webmanifest">
-<title>GigPilot v0.2.1</title>
+<title>GigPilot v0.3</title>
 <style>
 :root{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#111827;background:#f8fafc}
 *{box-sizing:border-box}body{margin:0;padding:16px;max-width:900px;margin:auto}
@@ -21,12 +21,13 @@ button.primary{background:#111827;color:#fff;border-color:#111827;width:100%}.ac
 </style>
 </head>
 <body>
-<header><div class="muted">GigPilot · local-first</div><h1>v0.2.1 People & Places</h1><div class="muted">Reservations, people, places and settings are stored on this device.</div></header>
+<header><div class="muted">GigPilot · local-first</div><h1>v0.3 Traffic Engine</h1><div class="muted">Reservations, people, places and settings are stored on this device.</div></header>
 
 <nav class="card tabs">
 <button class="tab active" data-tab="reservations">Reservations</button>
 <button class="tab" data-tab="people">People</button>
 <button class="tab" data-tab="places">Places</button>
+<button class="tab" data-tab="routing">Routing</button>
 <button class="tab" data-tab="backup">Backup</button>
 </nav>
 
@@ -67,6 +68,30 @@ button.primary{background:#111827;color:#fff;border-color:#111827;width:100%}.ac
 <div class="card"><div class="actions" style="justify-content:space-between"><h2 style="margin:0">Places</h2><span id="placeCount" class="badge">0</span></div><div id="placeList"></div></div>
 </section>
 
+
+<section id="routing" class="panel hidden">
+<div class="card"><h2>Traffic-aware route check</h2>
+<p class="muted">Choose saved places or enter full street addresses. GigPilot temporarily geocodes the addresses, asks Mapbox for a driving-traffic route, then discards the coordinates.</p>
+<div class="card" style="background:#f8fafc;margin:10px 0 14px">
+<strong>Mapbox connection</strong>
+<p class="muted small">Your public Mapbox token is stored only in this GigPilot installation on this device. It is not included in the GitHub code or GigPilot backups.</p>
+<label>Public token (starts with pk.)<input id="mapboxToken" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="pk.…"></label>
+<div class="actions" style="margin-top:8px"><button id="saveTokenBtn" type="button">Save token on this device</button><button id="removeTokenBtn" type="button">Remove token</button></div>
+<div id="tokenStatus" class="muted small" style="margin-top:7px">No token status checked yet.</div>
+</div>
+<div class="grid">
+<label>From saved place<select id="routeFrom"><option value="">— choose saved place —</option></select></label>
+<label>To saved place<select id="routeTo"><option value="">— choose saved place —</option></select></label>
+<label>Or from address<input id="routeFromText" placeholder="Full street address"></label>
+<label>Or to address<input id="routeToText" placeholder="Full street address"></label>
+</div>
+<button id="routeBtn" class="primary" style="margin-top:12px">Check route & traffic</button>
+<div id="routeStatus" class="muted small" style="margin-top:10px">Ready.</div>
+<div id="routeResult"></div>
+</div>
+<div class="card warn"><strong>Decision engine not enabled yet</strong><p style="margin-bottom:0">v0.3 verifies live routing first. GigPilot will not label a reservation SAFE until the scheduling decision engine is tested.</p></div>
+</section>
+
 <section id="backup" class="panel hidden">
 <div class="card"><h2>Whole-GigPilot backup</h2>
 <div class="summary"><div class="stat"><strong id="bRides">0</strong>Reservations</div><div class="stat"><strong id="bPeople">0</strong>People</div><div class="stat"><strong id="bPlaces">0</strong>Places</div></div>
@@ -85,6 +110,7 @@ function all(s){return new Promise((r,j)=>{let q=os(s).getAll();q.onsuccess=()=>
 function put(s,v){return new Promise((r,j)=>{let q=os(s,'readwrite').put(v);q.onsuccess=()=>r();q.onerror=()=>j(q.error)})}
 function del(s,id){return new Promise((r,j)=>{let q=os(s,'readwrite').delete(id);q.onsuccess=()=>r();q.onerror=()=>j(q.error)})}
 function clear(s){return new Promise((r,j)=>{let q=os(s,'readwrite').clear();q.onsuccess=()=>r();q.onerror=()=>j(q.error)})}
+function getOne(s,id){return new Promise((r,j)=>{let q=os(s).get(id);q.onsuccess=()=>r(q.result);q.onerror=()=>j(q.error)})}
 function fmtDate(d){let[y,m,day]=d.split('-').map(Number);let dt=new Date(y,m-1,day,12,0,0);return new Intl.DateTimeFormat('en-US',{weekday:'short',month:'short',day:'numeric',year:'numeric'}).format(dt)}
 function fmtTime(t){let[h,m]=t.split(':').map(Number),a=h>=12?'PM':'AM';h=h%12||12;return `${h}:${String(m).padStart(2,'0')} ${a}`}
 function dl(n,t,type){let a=document.createElement('a');a.href=URL.createObjectURL(new Blob([t],{type}));a.download=n;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},500)}
@@ -97,7 +123,7 @@ async function refresh(){
  $('#personList').innerHTML=people.length?people.map(p=>`<div class="item"><strong>${esc(p.name)}</strong>${p.nickname?` <span class="badge">${esc(p.nickname)}</span>`:''}<div class="muted">${esc(p.defaultPlaceName||'No default pickup')}</div><button data-dperson="${p.id}" style="margin-top:7px">Delete</button></div>`).join(''):'<p class="muted">No saved people yet.</p>';
  $('#placeList').innerHTML=places.length?places.map(p=>`<div class="item"><strong>${esc(p.name)}</strong>${p.alias?` <span class="badge">${esc(p.alias)}</span>`:''}<div class="muted">${esc(p.address)}</div><button data-dplace="${p.id}" style="margin-top:7px">Delete</button></div>`).join(''):'<p class="muted">No saved places yet.</p>';
  const pop=(sel,arr,label)=>{let v=$(sel).value;$(sel).innerHTML=`<option value="">— ${label} —</option>`+arr.map(x=>`<option value="${x.id}">${esc(x.name)}</option>`).join('');$(sel).value=v};
- pop('#ridePerson',people,'none / type later');pop('#ridePickup',places,'choose saved place');pop('#rideDropoff',places,'choose saved place');pop('#personPlace',places,'none');
+ pop('#ridePerson',people,'none / type later');pop('#ridePickup',places,'choose saved place');pop('#rideDropoff',places,'choose saved place');pop('#personPlace',places,'none');pop('#routeFrom',places,'choose saved place');pop('#routeTo',places,'choose saved place');
  document.querySelectorAll('[data-dride]').forEach(b=>b.onclick=async()=>{if(confirm('Delete this reservation?')){await del('reservations',b.dataset.dride);refresh()}});
  document.querySelectorAll('[data-dperson]').forEach(b=>b.onclick=async()=>{if(confirm('Delete this person? Existing reservations will remain.')){await del('people',b.dataset.dperson);refresh()}});
  document.querySelectorAll('[data-dplace]').forEach(b=>b.onclick=async()=>{if(confirm('Delete this place? Existing reservations will keep their saved text.')){await del('places',b.dataset.dplace);refresh()}});
@@ -107,10 +133,48 @@ $('#ridePerson').onchange=async()=>{let people=await all('people');let pe=people
 $('#placeForm').onsubmit=async e=>{e.preventDefault();await put('places',{id:crypto.randomUUID(),name:placeName.value.trim(),alias:placeAlias.value.trim(),address:placeAddress.value.trim(),notes:placeNotes.value.trim()});e.target.reset();await refresh()};
 $('#personForm').onsubmit=async e=>{e.preventDefault();let places=await all('places'),p=places.find(x=>x.id===personPlace.value);await put('people',{id:crypto.randomUUID(),name:personName.value.trim(),nickname:personNick.value.trim(),defaultPlaceId:p?.id||'',defaultPlaceName:p?.name||'',notes:personNotes.value.trim()});e.target.reset();await refresh()};
 $('#rideForm').onsubmit=async e=>{e.preventDefault();let [people,places]=await Promise.all([all('people'),all('places')]);let pe=people.find(x=>x.id===ridePerson.value),pu=places.find(x=>x.id===ridePickup.value),dr=places.find(x=>x.id===rideDropoff.value);let pickup=pu?.address||pickupText.value.trim(),dropoff=dr?.address||dropoffText.value.trim();if(!pickup||!dropoff){alert('Choose a saved place or enter text for both pickup and destination.');return}await put('reservations',{id:crypto.randomUUID(),service:service.value,passengerId:pe?.id||'',passengerName:pe?.name||'',date:date.value,time:time.value,pickupPlaceId:pu?.id||'',pickupName:pu?.name||pickupText.value.trim(),pickup,dropoffPlaceId:dr?.id||'',dropoffName:dr?.name||dropoffText.value.trim(),dropoff,notes:notes.value.trim(),createdAt:new Date().toISOString()});e.target.reset();rideMsg.textContent='✓ Reservation saved locally.';await refresh()};
-$('#backupBtn').onclick=async()=>{let payload={format:'GigPilot Backup',version:2,createdAt:new Date().toISOString(),reservations:await all('reservations'),people:await all('people'),places:await all('places'),settings:await all('settings')};dl(`GigPilot_Backup_${new Date().toISOString().slice(0,10)}.gpb`,JSON.stringify(payload,null,2),'application/json');backupStatus.textContent='✓ Complete GigPilot backup created.'};
-$('#csvBtn').onclick=async()=>{let rows=await all('reservations'),cols=['service','passengerName','date','time','pickupName','pickup','dropoffName','dropoff','notes'],q=v=>'"'+String(v??'').replaceAll('"','""')+'"';dl(`GigPilot_Reservations_${new Date().toISOString().slice(0,10)}.csv`,[cols.join(','),...rows.map(r=>cols.map(c=>q(r[c])).join(','))].join('\n'),'text/csv');backupStatus.textContent='✓ CSV exported.'};
+
+async function getMapboxToken(){let x=await getOne('settings','mapboxToken');return x?.value||''}
+async function showTokenStatus(){let t=await getMapboxToken();mapboxToken.value=t;tokenStatus.textContent=t?'✓ Public Mapbox token saved locally on this device.':'No Mapbox token saved yet.'}
+$('#saveTokenBtn').onclick=async()=>{let t=mapboxToken.value.trim();if(!t.startsWith('pk.')){tokenStatus.textContent='⚠️ Enter a Mapbox public token beginning with pk.';return}await put('settings',{id:'mapboxToken',value:t});tokenStatus.textContent='✓ Public Mapbox token saved locally on this device.'};
+$('#removeTokenBtn').onclick=async()=>{await del('settings','mapboxToken');mapboxToken.value='';tokenStatus.textContent='Mapbox token removed from this device.'};
+function miles(m){return (m/1609.344).toFixed(1)}
+function mins(sec){return Math.max(1,Math.round(sec/60))}
+async function geocodeTemp(address,token){
+ const u=new URL('https://api.mapbox.com/search/geocode/v6/forward');
+ u.searchParams.set('q',address);u.searchParams.set('country','US');u.searchParams.set('limit','1');u.searchParams.set('autocomplete','false');u.searchParams.set('permanent','false');u.searchParams.set('access_token',token);
+ const r=await fetch(u);let d;try{d=await r.json()}catch{throw Error('Mapbox geocoding returned an unreadable response.')}
+ if(!r.ok)throw Error(d.message||`Geocoding failed (${r.status})`);
+ let f=d.features?.[0];if(!f?.geometry?.coordinates)throw Error(`Could not find: ${address}`);
+ return {coord:f.geometry.coordinates,label:f.properties?.full_address||f.properties?.name||address};
+}
+async function trafficRoute(a,b,token){
+ const coords=`${a[0]},${a[1]};${b[0]},${b[1]}`;
+ const u=new URL(`https://api.mapbox.com/directions/v5/mapbox/driving-traffic/${coords}`);
+ u.searchParams.set('overview','false');u.searchParams.set('alternatives','false');u.searchParams.set('access_token',token);
+ const r=await fetch(u);let d;try{d=await r.json()}catch{throw Error('Mapbox routing returned an unreadable response.')}
+ if(!r.ok||d.code!=='Ok')throw Error(d.message||d.code||`Routing failed (${r.status})`);
+ if(!d.routes?.length)throw Error('No driving route found.');return d.routes[0];
+}
+$('#routeBtn').onclick=async()=>{
+ routeResult.innerHTML='';routeStatus.textContent='Checking addresses and traffic…';routeBtn.disabled=true;
+ try{
+  let token=await getMapboxToken();if(!token)throw Error('Save your Mapbox public token first.');
+  let places=await all('places'),fp=places.find(x=>x.id===routeFrom.value),tp=places.find(x=>x.id===routeTo.value);
+  let from=fp?.address||routeFromText.value.trim(),to=tp?.address||routeToText.value.trim();
+  if(!from||!to)throw Error('Choose or enter both a starting point and destination.');
+  let [g1,g2]=await Promise.all([geocodeTemp(from,token),geocodeTemp(to,token)]),r=await trafficRoute(g1.coord,g2.coord,token);
+  let typical=Number.isFinite(r.duration_typical)?mins(r.duration_typical):null,traffic=mins(r.duration),delta=typical?traffic-typical:null;
+  routeStatus.textContent='✓ Mapbox traffic route received.';
+  routeResult.innerHTML=`<div class="item"><strong>${traffic} min · ${miles(r.distance)} mi</strong><div class="muted">${esc(g1.label)} → ${esc(g2.label)}</div>${typical?`<div class="small" style="margin-top:6px">Typical: ${typical} min${delta>0?` · Traffic adds about ${delta} min`:delta<0?` · About ${Math.abs(delta)} min faster than typical`:' · About typical'}</div>`:''}<div class="badge" style="margin-top:8px">TRAFFIC CHECKED · NO SAFETY VERDICT YET</div></div>`;
+ }catch(x){routeStatus.textContent='⚠️ '+x.message;routeResult.innerHTML=''}finally{routeBtn.disabled=false}
+};
+
+$('#backupBtn').onclick=async()=>{let payload={format:'GigPilot Backup',version:2,createdAt:new Date().toISOString(),reservations:await all('reservations'),people:await all('people'),places:await all('places'),settings:(await all('settings')).filter(x=>x.id!=='mapboxToken')};dl(`GigPilot_Backup_${new Date().toISOString().slice(0,10)}.gpb`,JSON.stringify(payload,null,2),'application/json');backupStatus.textContent='✓ Complete GigPilot backup created.'};
+$('#csvBtn').onclick=async()=>{let rows=await all('reservations'),cols=['service','passengerName','date','time','pickupName','pickup','dropoffName','dropoff','notes'],q=v=>'"'+String(v??'').replaceAll('"','""')+'"';dl(`GigPilot_Reservations_${new Date().toISOString().slice(0,10)}.csv`,[cols.join(','),...rows.map(r=>cols.map(c=>q(r[c])).join(','))].join('
+'),'text/csv');backupStatus.textContent='✓ CSV exported.'};
 $('#restoreBtn').onclick=()=>restoreFile.click();
 $('#restoreFile').onchange=async e=>{let f=e.target.files[0];if(!f)return;try{let d=JSON.parse(await f.text());if(d.format!=='GigPilot Backup'||!Array.isArray(d.reservations))throw Error('Not a valid GigPilot backup');let summary=`${d.reservations.length} reservation(s), ${(d.people||[]).length} people, ${(d.places||[]).length} places`;if(!confirm(`Restore ${summary}? This replaces current GigPilot data.`))return;for(const s of stores)await clear(s);for(const r of d.reservations)await put('reservations',r);for(const p of d.people||[])await put('people',p);for(const p of d.places||[])await put('places',p);for(const s of d.settings||[])await put('settings',s);backupStatus.textContent='✓ GigPilot backup restored.';await refresh()}catch(x){alert('Restore failed: '+x.message)}finally{e.target.value=''}};
-(async()=>{await openDB();await refresh();if('serviceWorker'in navigator)navigator.serviceWorker.register('./sw.js').catch(()=>{})})();
+(async()=>{await openDB();await refresh();await showTokenStatus();if('serviceWorker'in navigator)navigator.serviceWorker.register('./sw.js').catch(()=>{})})();
 </script>
 </body></html>
