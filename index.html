@@ -195,10 +195,17 @@ $('#saveTokenBtn').onclick=async()=>{let t=mapboxToken.value.trim();if(!t.starts
 $('#removeTokenBtn').onclick=async()=>{await del('settings','mapboxToken');mapboxToken.value='';tokenStatus.textContent='Mapbox token removed from this device.'};
 function miles(m){return (m/1609.344).toFixed(1)}
 function mins(sec){return Math.max(1,Math.round(sec/60))}
+async function fetchWithTimeout(url,ms=10000){
+ const controller=new AbortController();
+ const timer=setTimeout(()=>controller.abort(),ms);
+ try{return await fetch(url,{signal:controller.signal})}
+ catch(e){if(e?.name==='AbortError')throw Error('Traffic check timed out after 10 seconds. Please try again.');throw e}
+ finally{clearTimeout(timer)}
+}
 async function geocodeTemp(address,token){
  const u=new URL('https://api.mapbox.com/search/geocode/v6/forward');
  u.searchParams.set('q',address);u.searchParams.set('country','US');u.searchParams.set('limit','1');u.searchParams.set('autocomplete','false');u.searchParams.set('permanent','false');u.searchParams.set('access_token',token);
- const r=await fetch(u);let d;try{d=await r.json()}catch{throw Error('Mapbox geocoding returned an unreadable response.')}
+ const r=await fetchWithTimeout(u);let d;try{d=await r.json()}catch{throw Error('Mapbox geocoding returned an unreadable response.')}
  if(!r.ok)throw Error(d.message||`Geocoding failed (${r.status})`);
  let f=d.features?.[0];if(!f?.geometry?.coordinates)throw Error(`Could not find: ${address}`);
  return {coord:f.geometry.coordinates,label:f.properties?.full_address||f.properties?.name||address};
@@ -207,7 +214,7 @@ async function trafficRoute(a,b,token){
  const coords=`${a[0]},${a[1]};${b[0]},${b[1]}`;
  const u=new URL(`https://api.mapbox.com/directions/v5/mapbox/driving-traffic/${coords}`);
  u.searchParams.set('overview','false');u.searchParams.set('alternatives','false');u.searchParams.set('access_token',token);
- const r=await fetch(u);let d;try{d=await r.json()}catch{throw Error('Mapbox routing returned an unreadable response.')}
+ const r=await fetchWithTimeout(u);let d;try{d=await r.json()}catch{throw Error('Mapbox routing returned an unreadable response.')}
  if(!r.ok||d.code!=='Ok')throw Error(d.message||d.code||`Routing failed (${r.status})`);
  if(!d.routes?.length)throw Error('No driving route found.');return d.routes[0];
 }
