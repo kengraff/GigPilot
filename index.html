@@ -21,7 +21,7 @@ button.primary{background:#111827;color:#fff;border-color:#111827;width:100%}.ac
 </style>
 </head>
 <body>
-<header><div class="muted">GigPilot · local-first</div><h1>v0.4 Decision Engine</h1><div class="muted">Reservations, people, places and settings are stored on this device.</div></header>
+<header><div class="muted">GigPilot · local-first</div><h1>v0.4.1 Decision Engine</h1><div class="muted">Reservations, people, places and settings are stored on this device.</div></header>
 
 <nav class="card tabs">
 <button class="tab active" data-tab="reservations">Reservations</button>
@@ -77,13 +77,6 @@ button.primary{background:#111827;color:#fff;border-color:#111827;width:100%}.ac
 <section id="routing" class="panel hidden">
 <div class="card"><h2>Traffic-aware route check</h2>
 <p class="muted">Choose saved places or enter full street addresses. GigPilot temporarily geocodes the addresses, asks Mapbox for a driving-traffic route, then discards the coordinates.</p>
-<div class="card" style="background:#f8fafc;margin:10px 0 14px">
-<strong>Mapbox connection</strong>
-<p class="muted small">Your public Mapbox token is stored only in this GigPilot installation on this device. It is not included in the GitHub code or GigPilot backups.</p>
-<label>Public token (starts with pk.)<input id="mapboxToken" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="pk.…"></label>
-<div class="actions" style="margin-top:8px"><button id="saveTokenBtn" type="button">Save token on this device</button><button id="removeTokenBtn" type="button">Remove token</button></div>
-<div id="tokenStatus" class="muted small" style="margin-top:7px">No token status checked yet.</div>
-</div>
 <div class="grid">
 <label>From saved place<select id="routeFrom"><option value="">— choose saved place —</option></select></label>
 <label>To saved place<select id="routeTo"><option value="">— choose saved place —</option></select></label>
@@ -95,6 +88,13 @@ button.primary{background:#111827;color:#fff;border-color:#111827;width:100%}.ac
 <div id="routeResult"></div>
 </div>
 <div class="card warn"><strong>Traffic timing note</strong><p style="margin-bottom:0">The decision engine uses the traffic conditions available when you run the check. For future reservations, conditions can change. Recheck closer to departure time.</p></div>
+<div class="card" style="background:#f8fafc;margin:14px 0 0">
+<strong>Advanced · Mapbox connection</strong>
+<p class="muted small">Your public Mapbox token is stored only in this GigPilot installation on this device. It is not included in the GitHub code or GigPilot backups.</p>
+<label>Public token (starts with pk.)<input id="mapboxToken" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="pk.…"></label>
+<div class="actions" style="margin-top:8px"><button id="saveTokenBtn" type="button">Save token on this device</button><button id="removeTokenBtn" type="button">Remove token</button></div>
+<div id="tokenStatus" class="muted small" style="margin-top:7px">No token status checked yet.</div>
+</div>
 </section>
 
 <section id="backup" class="panel hidden">
@@ -124,7 +124,8 @@ async function refresh(){
  rides.sort((a,b)=>(a.date+a.time).localeCompare(b.date+b.time));
  $('#rideCount').textContent=rides.length;$('#personCount').textContent=people.length;$('#placeCount').textContent=places.length;
  $('#bRides').textContent=rides.length;$('#bPeople').textContent=people.length;$('#bPlaces').textContent=places.length;
- $('#rideList').innerHTML=rides.length?rides.map(r=>`<div class="item"><span class="badge">${esc(r.service)}</span> <strong>${esc(r.passengerName||r.passenger||'Reservation')}</strong><div>${fmtDate(r.date)} · ${fmtTime(r.time)}${r.durationMin?` · ${esc(r.durationMin)} min est.`:''}</div><div class="muted">${esc(r.pickupName||r.pickup)} → ${esc(r.dropoffName||r.dropoff)}</div><button data-dride="${r.id}" style="margin-top:7px">Delete</button></div>`).join(''):'<p class="muted">No reservations yet.</p>';
+ let overlapIds=new Set();for(let i=1;i<rides.length;i++){let a=rides[i-1],b=rides[i];if(a.date===b.date&&a.durationMin&&rideStartMs(b)<rideStartMs(a)+Number(a.durationMin)*60000)overlapIds.add(b.id)}
+ $('#rideList').innerHTML=rides.length?rides.map(r=>`<div class="item"><span class="badge">${esc(r.service)}</span> <strong>${esc(r.passengerName||r.passenger||'Reservation')}</strong>${overlapIds.has(r.id)?' <span class="badge"><strong>CONFLICT · OVERLAP</strong></span>':''}<div>${fmtDate(r.date)} · ${fmtTime(r.time)}${r.durationMin?` · ${esc(r.durationMin)} min est.`:''}</div><div class="muted">${esc(r.pickupName||r.pickup)} → ${esc(r.dropoffName||r.dropoff)}</div><button data-dride="${r.id}" style="margin-top:7px">Delete</button></div>`).join(''):'<p class="muted">No reservations yet.</p>';
  $('#personList').innerHTML=people.length?people.map(p=>`<div class="item"><strong>${esc(p.name)}</strong>${p.nickname?` <span class="badge">${esc(p.nickname)}</span>`:''}<div class="muted">${esc(p.defaultPlaceName||'No default pickup')}</div><button data-eperson="${p.id}" style="margin-top:7px">Edit</button> <button data-dperson="${p.id}" style="margin-top:7px">Delete</button></div>`).join(''):'<p class="muted">No saved people yet.</p>';
  $('#placeList').innerHTML=places.length?places.map(p=>`<div class="item"><strong>${esc(p.name)}</strong>${p.alias?` <span class="badge">${esc(p.alias)}</span>`:''}<div class="muted">${esc(p.address)}</div><button data-eplace="${p.id}" style="margin-top:7px">Edit</button> <button data-dplace="${p.id}" style="margin-top:7px">Delete</button></div>`).join(''):'<p class="muted">No saved places yet.</p>';
  const pop=(sel,arr,label)=>{let v=$(sel).value;$(sel).innerHTML=`<option value="">— ${label} —</option>`+arr.map(x=>`<option value="${x.id}">${esc(x.name)}</option>`).join('');$(sel).value=v};
@@ -139,7 +140,7 @@ document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{document.querySelect
 $('#ridePerson').onchange=async()=>{let people=await all('people');let pe=people.find(x=>x.id===ridePerson.value);if(pe?.defaultPlaceId){let exists=[...ridePickup.options].some(o=>o.value===pe.defaultPlaceId);if(exists)ridePickup.value=pe.defaultPlaceId}};
 $('#placeForm').onsubmit=async e=>{e.preventDefault();let id=e.target.dataset.editId||crypto.randomUUID();await put('places',{id,name:placeName.value.trim(),alias:placeAlias.value.trim(),address:placeAddress.value.trim(),notes:placeNotes.value.trim()});delete e.target.dataset.editId;e.target.reset();e.target.querySelector('button.primary').textContent='Save place';await refresh()};
 $('#personForm').onsubmit=async e=>{e.preventDefault();let places=await all('places'),p=places.find(x=>x.id===personPlace.value),id=e.target.dataset.editId||crypto.randomUUID();await put('people',{id,name:personName.value.trim(),nickname:personNick.value.trim(),defaultPlaceId:p?.id||'',defaultPlaceName:p?.name||'',notes:personNotes.value.trim()});delete e.target.dataset.editId;e.target.reset();e.target.querySelector('button.primary').textContent='Save person';await refresh()};
-$('#rideForm').onsubmit=async e=>{e.preventDefault();let [people,places]=await Promise.all([all('people'),all('places')]);let pe=people.find(x=>x.id===ridePerson.value),pu=places.find(x=>x.id===ridePickup.value),dr=places.find(x=>x.id===rideDropoff.value);let pickup=pu?.address||pickupText.value.trim(),dropoff=dr?.address||dropoffText.value.trim();if(!pickup||!dropoff){alert('Choose a saved place or enter text for both pickup and destination.');return}await put('reservations',{id:crypto.randomUUID(),service:service.value,passengerId:pe?.id||'',passengerName:pe?.name||'',date:date.value,time:time.value,durationMin:Number(durationMin.value),pickupPlaceId:pu?.id||'',pickupName:pu?.name||pickupText.value.trim(),pickup,dropoffPlaceId:dr?.id||'',dropoffName:dr?.name||dropoffText.value.trim(),dropoff,notes:notes.value.trim(),createdAt:new Date().toISOString()});e.target.reset();rideMsg.textContent='✓ Reservation saved locally.';await refresh()};
+$('#rideForm').onsubmit=async e=>{e.preventDefault();let [people,places]=await Promise.all([all('people'),all('places')]);let pe=people.find(x=>x.id===ridePerson.value),pu=places.find(x=>x.id===ridePickup.value),dr=places.find(x=>x.id===rideDropoff.value);let pickup=pu?.address||pickupText.value.trim(),dropoff=dr?.address||dropoffText.value.trim();if(!pickup||!dropoff){alert('Choose a saved place or enter text for both pickup and destination.');return}let newRide={id:crypto.randomUUID(),service:service.value,passengerId:pe?.id||'',passengerName:pe?.name||'',date:date.value,time:time.value,durationMin:Number(durationMin.value),pickupPlaceId:pu?.id||'',pickupName:pu?.name||pickupText.value.trim(),pickup,dropoffPlaceId:dr?.id||'',dropoffName:dr?.name||dropoffText.value.trim(),dropoff,notes:notes.value.trim(),createdAt:new Date().toISOString()};let existing=(await all('reservations')).filter(r=>r.date===newRide.date&&r.durationMin).sort((a,b)=>rideStartMs(a)-rideStartMs(b));let prior=[...existing].reverse().find(r=>rideStartMs(r)<=rideStartMs(newRide)),overlap=prior&&rideStartMs(newRide)<rideStartMs(prior)+Number(prior.durationMin)*60000;await put('reservations',newRide);e.target.reset();rideMsg.textContent=overlap?'⚠️ Reservation saved, but it overlaps the previous reservation. CONFLICT.':'✓ Reservation saved locally.';await refresh()};
 
 async function getMapboxToken(){let x=await getOne('settings','mapboxToken');return x?.value||''}
 async function showTokenStatus(){let t=await getMapboxToken();mapboxToken.value=t;tokenStatus.textContent=t?'✓ Public Mapbox token saved locally on this device.':'No Mapbox token saved yet.'}
@@ -191,6 +192,7 @@ $('#evaluateBtn').onclick=async()=>{
    let prev=rides[i-1],next=rides[i];
    if(!prev.durationMin){out.push(`<div class="item"><strong>UNKNOWN</strong> · ${esc(next.passengerName||next.service)}<div class="muted">Previous ride has no estimated duration. Edit/recreate it with a duration before GigPilot can judge this transition.</div></div>`);continue}
    let prevEnd=rideStartMs(prev)+Number(prev.durationMin)*60000,gap=Math.round((rideStartMs(next)-prevEnd)/60000);
+   if(gap<0){out.push(`<div class="item"><span class="badge"><strong>CONFLICT</strong></span> <strong>${esc(prev.passengerName||prev.service)} → ${esc(next.passengerName||next.service)}</strong><div>${fmtDate(next.date)} · next pickup ${fmtTime(next.time)}</div><div class="muted">Previous ride ends about ${new Date(prevEnd).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'})} · Next ride starts ${Math.abs(gap)} min before that.</div><div class="small" style="margin-top:5px">Reservations overlap. No traffic lookup is needed to identify this conflict.</div></div>`);continue}
    if(!prev.dropoff||!next.pickup){out.push(`<div class="item"><strong>UNKNOWN</strong><div class="muted">Missing drop-off or next pickup address.</div></div>`);continue}
    try{
     let [a,b]=await Promise.all([geocodeTemp(prev.dropoff,token),geocodeTemp(next.pickup,token)]),route=await trafficRoute(a.coord,b.coord,token),travel=mins(route.duration),verdict=gap<travel?'CONFLICT':gap<travel+buffer?'TIGHT':'SAFE',margin=gap-travel-buffer;
