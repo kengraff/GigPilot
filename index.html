@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#111827">
 <link rel="manifest" href="manifest.webmanifest">
-<title>GigPilot v0.5.1</title>
+<title>GigPilot v0.5.3</title>
 <style>
 :root{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#111827;background:#f8fafc}
 *{box-sizing:border-box}body{margin:0;padding:16px;max-width:900px;margin:auto}
@@ -28,7 +28,7 @@ button.primary{background:#111827;color:#fff;border-color:#111827;width:100%}.ac
 </style>
 </head>
 <body>
-<header><div class="muted">GigPilot · local-first</div><h1>v0.5.1 Decision Feedback Upgrade</h1><div class="muted">Reservations, people, places and settings are stored on this device.</div></header>
+<header><div class="muted">GigPilot · local-first</div><h1>v0.5.3 Automatic Traffic Check Fix</h1><div class="muted">Reservations, people, places and settings are stored on this device.</div></header>
 
 <nav class="card tabs">
 <button class="tab active" data-tab="reservations">Reservations</button>
@@ -120,6 +120,14 @@ button.primary{background:#111827;color:#fff;border-color:#111827;width:100%}.ac
     <div class="reason">DO NOT ACCEPT without reviewing this conflict.</div>
     <div id="conflictDetail" style="margin-top:12px"></div>
     <div class="actions"><button id="cancelConflictBtn" type="button" class="secondary">Cancel</button><button id="saveAnywayBtn" type="button" class="danger">Save Anyway</button></div>
+  </div>
+</div>
+
+<div id="checkingModal" class="modal-backdrop hidden" role="status" aria-live="polite" aria-label="Checking route and traffic">
+  <div class="modal checking-modal">
+    <div class="spinner" aria-hidden="true"></div>
+    <h2>Checking route &amp; traffic…</h2>
+    <div class="muted">GigPilot is checking Mapbox traffic before saving this reservation.</div>
   </div>
 </div>
 <script>
