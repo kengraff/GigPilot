@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#111827">
 <link rel="manifest" href="manifest.webmanifest">
-<title>GigPilot v0.5.3</title>
+<title>GigPilot v0.5.1</title>
 <style>
 :root{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#111827;background:#f8fafc}
 *{box-sizing:border-box}body{margin:0;padding:16px;max-width:900px;margin:auto}
@@ -28,7 +28,7 @@ button.primary{background:#111827;color:#fff;border-color:#111827;width:100%}.ac
 </style>
 </head>
 <body>
-<header><div class="muted">GigPilot · local-first</div><h1>v0.5.3 Automatic Traffic Check Fix</h1><div class="muted">Reservations, people, places and settings are stored on this device.</div></header>
+<header><div class="muted">GigPilot · local-first</div><h1>v0.5.1 Decision Feedback Upgrade</h1><div class="muted">Reservations, people, places and settings are stored on this device.</div></header>
 
 <nav class="card tabs">
 <button class="tab active" data-tab="reservations">Reservations</button>
@@ -122,14 +122,6 @@ button.primary{background:#111827;color:#fff;border-color:#111827;width:100%}.ac
     <div class="actions"><button id="cancelConflictBtn" type="button" class="secondary">Cancel</button><button id="saveAnywayBtn" type="button" class="danger">Save Anyway</button></div>
   </div>
 </div>
-
-<div id="checkingModal" class="modal-backdrop hidden" role="status" aria-live="polite" aria-label="Checking route and traffic">
-  <div class="modal checking-modal">
-    <div class="spinner" aria-hidden="true"></div>
-    <h2>Checking route &amp; traffic…</h2>
-    <div class="muted">GigPilot is checking Mapbox traffic before saving this reservation.</div>
-  </div>
-</div>
 <script>
 const DB='GigPilotDB', VER=2, stores=['reservations','people','places','settings'];let db;
 const $=s=>document.querySelector(s), esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -211,12 +203,14 @@ async function fetchWithTimeout(url,ms=10000){
  finally{clearTimeout(timer)}
 }
 async function geocodeTemp(address,token){
- const u=new URL('https://api.mapbox.com/search/geocode/v6/forward');
- u.searchParams.set('q',address);u.searchParams.set('country','US');u.searchParams.set('limit','1');u.searchParams.set('autocomplete','false');u.searchParams.set('permanent','false');u.searchParams.set('access_token',token);
- const r=await fetchWithTimeout(u);let d;try{d=await r.json()}catch{throw Error('Mapbox geocoding returned an unreadable response.')}
- if(!r.ok)throw Error(d.message||`Geocoding failed (${r.status})`);
- let f=d.features?.[0];if(!f?.geometry?.coordinates)throw Error(`Could not find: ${address}`);
- return {coord:f.geometry.coordinates,label:f.properties?.full_address||f.properties?.name||address};
+ // Search Box supports both street addresses and POIs/business names (e.g. "Best Buy, Union City, CA").
+ const u=new URL('https://api.mapbox.com/search/searchbox/v1/forward');
+ u.searchParams.set('q',address);u.searchParams.set('country','US');u.searchParams.set('language','en');u.searchParams.set('limit','1');u.searchParams.set('types','poi,address');u.searchParams.set('access_token',token);
+ const r=await fetchWithTimeout(u);let d;try{d=await r.json()}catch{throw Error('Mapbox location search returned an unreadable response.')}
+ if(!r.ok)throw Error(d.message||`Location search failed (${r.status})`);
+ let f=d.features?.[0];if(!f?.geometry?.coordinates)throw Error(`Could not find a specific address or business: ${address}`);
+ let p=f.properties||{},label=p.full_address||[p.name,p.address,p.place_formatted].filter(Boolean).join(', ')||address;
+ return {coord:f.geometry.coordinates,label,featureType:p.feature_type||''};
 }
 async function trafficRoute(a,b,token){
  const coords=`${a[0]},${a[1]};${b[0]},${b[1]}`;
