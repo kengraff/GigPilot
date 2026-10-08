@@ -28,7 +28,7 @@ button.primary{background:#111827;color:#fff;border-color:#111827;width:100%}.ac
 </style>
 </head>
 <body>
-<header><div class="muted">GigPilot · local-first</div><h1>v0.5.6 Save Watchdog Fix</h1><div class="muted">Reservations, people, places and settings are stored on this device.</div></header>
+<header><div class="muted">GigPilot · local-first</div><h1>v0.5.7 Save Diagnostics</h1><div class="muted">Reservations, people, places and settings are stored on this device.</div></header>
 
 <nav class="card tabs">
 <button class="tab active" data-tab="reservations">Reservations</button>
@@ -192,24 +192,26 @@ $('#rideForm').onsubmit=async e=>{
  const oldText=submit?.textContent||'Save reservation';
  if(submit){submit.disabled=true;submit.textContent='Checking route & traffic…'}
  rideMsg.innerHTML='';showChecking();
- let active=true,saved=false,watchdog;
+ let active=true,saved=false,watchdog,stage='Starting save';
+ const setStage=(name)=>{stage=name;if(active){const x=document.getElementById('saveDiagnosticStage');if(x)x.textContent='Stage: '+name;}};
+ setStage('Reading local records');
  const assertActive=()=>{if(!active)throw Error('Save check expired. No reservation was saved by this attempt.')};
  const cleanup=()=>{clearTimeout(watchdog);active=false;reservationSaveInProgress=false;hideChecking();if(submit){submit.disabled=false;submit.textContent=oldText}};
  // Independent watchdog: even a stalled IndexedDB request cannot hold the UI forever.
  watchdog=setTimeout(()=>{
    if(!active)return;
    active=false;
-   rideMsg.innerHTML='<div class="save-result save-neutral"><h3>⚠️ CHECK TIMED OUT — NOT SAVED</h3><div>GigPilot could not finish verifying traffic within 25 seconds. Do not assume this ride is safe. Try again when connected.</div></div>';
+   rideMsg.innerHTML='<div class="save-result save-neutral"><h3>⚠️ CHECK TIMED OUT — NOT SAVED</h3><div>GigPilot did not finish within 25 seconds. Last stage: '+esc(stage)+'. Do not assume this ride is safe. Check the reservation count before retrying.</div></div>';
    cleanup();
  },25000);
  try{
-let [people,places]=await Promise.all([all('people'),all('places')]);let pe=people.find(x=>x.id===ridePerson.value),pu=places.find(x=>x.id===ridePickup.value),dr=places.find(x=>x.id===rideDropoff.value);let pickup=pu?.address||pickupText.value.trim(),dropoff=dr?.address||dropoffText.value.trim();if(!pickup||!dropoff){alert('Choose a saved place or enter text for both pickup and destination.');return}let newRide={id:crypto.randomUUID(),service:service.value,passengerId:pe?.id||'',passengerName:pe?.name||'',date:date.value,time:time.value,durationMin:Number(durationMin.value),pickupPlaceId:pu?.id||'',pickupName:pu?.name||pickupText.value.trim(),pickup,dropoffPlaceId:dr?.id||'',dropoffName:dr?.name||dropoffText.value.trim(),dropoff,notes:notes.value.trim(),createdAt:new Date().toISOString()};let existing=(await all('reservations')).filter(r=>r.date===newRide.date&&r.durationMin).sort((a,b)=>rideStartMs(a)-rideStartMs(b));let ns=rideStartMs(newRide),ne=ns+Number(newRide.durationMin)*60000,conflict=null;for(const r of existing){let rs=rideStartMs(r),re=rs+Number(r.durationMin)*60000;if(ns<re&&ne>rs){conflict={r,rs,re};break}}if(conflict){let overlap=Math.ceil((Math.min(ne,conflict.re)-Math.max(ns,conflict.rs))/60000);assertActive();showGuard(newRide,'🚨 SCHEDULE CONFLICT','DO NOT ACCEPT without reviewing this conflict.',`<p><strong>Existing:</strong> ${esc(fmtTime(conflict.r.time))} for ${esc(conflict.r.durationMin)} min (ends about ${esc(new Date(conflict.re).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'}))})</p><p><strong>New:</strong> ${esc(fmtTime(newRide.time))} for ${esc(newRide.durationMin)} min</p><p style="font-size:20px"><strong>${overlap}-minute overlap.</strong></p>`);return}
- let token=await getMapboxToken(),bufRec=await getOne('settings','safetyBuffer'),buffer=Math.max(0,Number(bufRec?.value??10));let before=existing.filter(r=>rideStartMs(r)<ns).at(-1)||null,after=existing.find(r=>rideStartMs(r)>ns)||null;
+let [people,places]=await Promise.all([all('people'),all('places')]);assertActive();setStage('Preparing reservation');let pe=people.find(x=>x.id===ridePerson.value),pu=places.find(x=>x.id===ridePickup.value),dr=places.find(x=>x.id===rideDropoff.value);let pickup=pu?.address||pickupText.value.trim(),dropoff=dr?.address||dropoffText.value.trim();if(!pickup||!dropoff){alert('Choose a saved place or enter text for both pickup and destination.');return}let newRide={id:crypto.randomUUID(),service:service.value,passengerId:pe?.id||'',passengerName:pe?.name||'',date:date.value,time:time.value,durationMin:Number(durationMin.value),pickupPlaceId:pu?.id||'',pickupName:pu?.name||pickupText.value.trim(),pickup,dropoffPlaceId:dr?.id||'',dropoffName:dr?.name||dropoffText.value.trim(),dropoff,notes:notes.value.trim(),createdAt:new Date().toISOString()};setStage('Reading existing reservations');let existing=(await all('reservations')).filter(r=>r.date===newRide.date&&r.durationMin).sort((a,b)=>rideStartMs(a)-rideStartMs(b));let ns=rideStartMs(newRide),ne=ns+Number(newRide.durationMin)*60000,conflict=null;for(const r of existing){let rs=rideStartMs(r),re=rs+Number(r.durationMin)*60000;if(ns<re&&ne>rs){conflict={r,rs,re};break}}if(conflict){let overlap=Math.ceil((Math.min(ne,conflict.re)-Math.max(ns,conflict.rs))/60000);assertActive();showGuard(newRide,'🚨 SCHEDULE CONFLICT','DO NOT ACCEPT without reviewing this conflict.',`<p><strong>Existing:</strong> ${esc(fmtTime(conflict.r.time))} for ${esc(conflict.r.durationMin)} min (ends about ${esc(new Date(conflict.re).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'}))})</p><p><strong>New:</strong> ${esc(fmtTime(newRide.time))} for ${esc(newRide.durationMin)} min</p><p style="font-size:20px"><strong>${overlap}-minute overlap.</strong></p>`);return}
+ setStage('Reading Mapbox settings');let token=await getMapboxToken(),bufRec=await getOne('settings','safetyBuffer'),buffer=Math.max(0,Number(bufRec?.value??10));let before=existing.filter(r=>rideStartMs(r)<ns).at(-1)||null,after=existing.find(r=>rideStartMs(r)>ns)||null;
  if(!token&&(before||after)){assertActive();showGuard(newRide,'⚪ TRAFFIC NOT CHECKED','GigPilot cannot call this SAFE.',`<p>No Mapbox token is available on this device.</p><p>Save a public token in Routing, or choose <strong>Save Anyway</strong> to override.</p>`);return}
- let checks=[];if(before)checks.push(await withDeadline(transitionCheck(before,newRide,token,buffer),12000));if(after)checks.push(await withDeadline(transitionCheck(newRide,after,token,buffer),12000));let problem=checks.find(x=>x&&x.verdict==='CONFLICT')||checks.find(x=>x&&x.verdict==='UNKNOWN')||checks.find(x=>x&&x.verdict==='TIGHT');if(problem){let title=problem.verdict==='CONFLICT'?'🚨 SCHEDULE CONFLICT':problem.verdict==='TIGHT'?'⚠️ TIGHT SCHEDULE':'⚪ TRAFFIC NOT CHECKED',reason=problem.verdict==='CONFLICT'?'DO NOT ACCEPT without reviewing this conflict.':problem.verdict==='TIGHT'?'Your full 10-minute safety buffer does not fit.':'GigPilot cannot call this SAFE.';assertActive();showGuard(newRide,title,reason,guardHtml(problem));return}
- assertActive();await put('reservations',newRide);saved=true;assertActive();e.target.reset();rideMsg.innerHTML=checks.length?safeResultHtml(checks,buffer):'<div class="save-result save-neutral"><h3>✓ RESERVATION SAVED</h3><div>Route & traffic check completed. There is no adjacent reservation requiring a transition check.</div></div>';await refresh()
+ let checks=[];if(before){setStage('Checking traffic from previous ride');checks.push(await withDeadline(transitionCheck(before,newRide,token,buffer),12000));assertActive()}if(after){setStage('Checking traffic to next ride');checks.push(await withDeadline(transitionCheck(newRide,after,token,buffer),12000));assertActive()}let problem=checks.find(x=>x&&x.verdict==='CONFLICT')||checks.find(x=>x&&x.verdict==='UNKNOWN')||checks.find(x=>x&&x.verdict==='TIGHT');if(problem){let title=problem.verdict==='CONFLICT'?'🚨 SCHEDULE CONFLICT':problem.verdict==='TIGHT'?'⚠️ TIGHT SCHEDULE':'⚪ TRAFFIC NOT CHECKED',reason=problem.verdict==='CONFLICT'?'DO NOT ACCEPT without reviewing this conflict.':problem.verdict==='TIGHT'?'Your full 10-minute safety buffer does not fit.':'GigPilot cannot call this SAFE.';assertActive();showGuard(newRide,title,reason,guardHtml(problem));return}
+ assertActive();setStage('Writing reservation to local database');await put('reservations',newRide);saved=true;assertActive();setStage('Refreshing reservation list');e.target.reset();rideMsg.innerHTML=checks.length?safeResultHtml(checks,buffer):'<div class="save-result save-neutral"><h3>✓ RESERVATION SAVED</h3><div>Route & traffic check completed. There is no adjacent reservation requiring a transition check.</div></div>';await refresh()
  }catch(error){
-   if(active){rideMsg.innerHTML='<div class="save-result save-neutral"><h3>⚠️ TRAFFIC NOT CHECKED — NOT SAVED</h3><div>'+esc(error?.message||'Unexpected error during schedule check.')+'</div><div>Please retry. No reservation was saved by this attempt.</div></div>';console.error('GigPilot save check failed',error)}
+   if(active){rideMsg.innerHTML='<div class="save-result save-neutral"><h3>⚠️ TRAFFIC NOT CHECKED — NOT SAVED</h3><div>'+esc(error?.message||'Unexpected error during schedule check.')+' (Stage: '+esc(stage)+')</div><div>Please retry. No reservation was saved by this attempt.</div></div>';console.error('GigPilot save check failed',error)}
  }finally{if(active)cleanup()}
 };
 
@@ -220,18 +222,21 @@ $('#removeTokenBtn').onclick=async()=>{await del('settings','mapboxToken');mapbo
 function miles(m){return (m/1609.344).toFixed(1)}
 function mins(sec){return Math.max(1,Math.round(sec/60))}
 function withDeadline(promise,ms){let timer;return Promise.race([promise,new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error('Traffic check exceeded its time limit. Reservation not saved.')),ms)})]).finally(()=>clearTimeout(timer))}
-async function fetchWithTimeout(url,ms=10000){
+async function fetchJsonWithTimeout(url,ms=10000){
  const controller=new AbortController();
- const timer=setTimeout(()=>controller.abort(),ms);
- try{return await fetch(url,{signal:controller.signal})}
- catch(e){if(e?.name==='AbortError')throw Error('Traffic check timed out after 10 seconds. Please try again.');throw e}
- finally{clearTimeout(timer)}
+ let timer;
+ try{
+  return await Promise.race([
+   (async()=>{const r=await fetch(url,{signal:controller.signal});const d=await r.json();return {r,d}})(),
+   new Promise((_,reject)=>{timer=setTimeout(()=>{controller.abort();reject(Error('Mapbox request or response timed out after '+Math.round(ms/1000)+' seconds.'))},ms)})
+  ]);
+ }finally{clearTimeout(timer)}
 }
 async function geocodeTemp(address,token){
  // Search Box supports both street addresses and POIs/business names (e.g. "Best Buy, Union City, CA").
  const u=new URL('https://api.mapbox.com/search/searchbox/v1/forward');
  u.searchParams.set('q',address);u.searchParams.set('country','US');u.searchParams.set('language','en');u.searchParams.set('limit','1');u.searchParams.set('types','poi,address');u.searchParams.set('access_token',token);
- const r=await fetchWithTimeout(u);let d;try{d=await r.json()}catch{throw Error('Mapbox location search returned an unreadable response.')}
+ const {r,d}=await fetchJsonWithTimeout(u);
  if(!r.ok)throw Error(d.message||`Location search failed (${r.status})`);
  let f=d.features?.[0];if(!f?.geometry?.coordinates)throw Error(`Could not find a specific address or business: ${address}`);
  let p=f.properties||{},label=p.full_address||[p.name,p.address,p.place_formatted].filter(Boolean).join(', ')||address;
@@ -241,7 +246,7 @@ async function trafficRoute(a,b,token){
  const coords=`${a[0]},${a[1]};${b[0]},${b[1]}`;
  const u=new URL(`https://api.mapbox.com/directions/v5/mapbox/driving-traffic/${coords}`);
  u.searchParams.set('overview','false');u.searchParams.set('alternatives','false');u.searchParams.set('access_token',token);
- const r=await fetchWithTimeout(u);let d;try{d=await r.json()}catch{throw Error('Mapbox routing returned an unreadable response.')}
+ const {r,d}=await fetchJsonWithTimeout(u);
  if(!r.ok||d.code!=='Ok')throw Error(d.message||d.code||`Routing failed (${r.status})`);
  if(!d.routes?.length)throw Error('No driving route found.');return d.routes[0];
 }
