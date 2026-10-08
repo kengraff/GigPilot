@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#111827">
 <link rel="manifest" href="manifest.webmanifest">
-<title>GigPilot v0.5.6</title>
+<title>GigPilot v0.5.8</title>
 <style>
 :root{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#111827;background:#f8fafc}
 *{box-sizing:border-box}body{margin:0;padding:16px;max-width:900px;margin:auto}
@@ -28,7 +28,7 @@ button.primary{background:#111827;color:#fff;border-color:#111827;width:100%}.ac
 </style>
 </head>
 <body>
-<header><div class="muted">GigPilot · local-first</div><h1>v0.5.7 Save Diagnostics</h1><div class="muted">Reservations, people, places and settings are stored on this device.</div></header>
+<header><div class="muted">GigPilot · local-first</div><h1>v0.5.8 Save Recovery Fix</h1><div class="muted">Reservations, people, places and settings are stored on this device.</div></header>
 
 <nav class="card tabs">
 <button class="tab active" data-tab="reservations">Reservations</button>
@@ -114,6 +114,15 @@ button.primary{background:#111827;color:#fff;border-color:#111827;width:100%}.ac
 </main>
 
 
+<div id="checkingModal" class="modal-backdrop hidden" role="status" aria-live="polite" aria-label="Checking route and traffic">
+  <div class="modal checking-modal">
+    <div class="spinner" aria-hidden="true"></div>
+    <h2>Checking route &amp; traffic…</h2>
+    <p>GigPilot is checking your schedule before saving.</p>
+    <p id="saveDiagnosticStage" style="font-weight:700;color:#1e40af">Stage: Starting save</p>
+    <p class="small muted">If a check fails, GigPilot will show a warning instead of claiming SAFE.</p>
+  </div>
+</div>
 <div id="conflictModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="conflictTitle">
   <div class="modal">
     <h2 id="conflictTitle">🚨 SCHEDULE CONFLICT</h2>
@@ -175,8 +184,8 @@ function guardHtml(x){
  if(x.kind==='TRAFFIC')return base+`<p><strong>Available:</strong> ${x.gap} min · <strong>Current drive:</strong> ${x.travel} min · <strong>Safety buffer:</strong> ${x.buffer} min</p>`+(x.verdict==='CONFLICT'?`<p style="font-size:20px"><strong>Not enough time to reach the next pickup.</strong></p>`:`<p style="font-size:20px"><strong>The drive may fit, but your full safety buffer does not.</strong></p>`);
  return base+`<p style="font-size:20px"><strong>TRAFFIC NOT CHECKED.</strong></p><p>${esc(x.error||'GigPilot does not have enough information to verify this transition.')}</p>`;
 }
-function showChecking(){checkingModal.classList.remove('hidden')}
-function hideChecking(){checkingModal.classList.add('hidden')}
+function showChecking(){document.getElementById('checkingModal')?.classList.remove('hidden')}
+function hideChecking(){document.getElementById('checkingModal')?.classList.add('hidden')}
 function safeResultHtml(checks,buffer){
  let margins=checks.filter(x=>x?.verdict==='SAFE').map(x=>({x,margin:x.gap-x.travel-buffer}));
  let tightest=margins.sort((a,b)=>a.margin-b.margin)[0];
@@ -191,10 +200,10 @@ $('#rideForm').onsubmit=async e=>{
  const submit=e.submitter||$('#rideForm button[type=submit]');
  const oldText=submit?.textContent||'Save reservation';
  if(submit){submit.disabled=true;submit.textContent='Checking route & traffic…'}
- rideMsg.innerHTML='';showChecking();
+ rideMsg.innerHTML='';
  let active=true,saved=false,watchdog,stage='Starting save';
  const setStage=(name)=>{stage=name;if(active){const x=document.getElementById('saveDiagnosticStage');if(x)x.textContent='Stage: '+name;}};
- setStage('Reading local records');
+ showChecking();setStage('Reading local records');
  const assertActive=()=>{if(!active)throw Error('Save check expired. No reservation was saved by this attempt.')};
  const cleanup=()=>{clearTimeout(watchdog);active=false;reservationSaveInProgress=false;hideChecking();if(submit){submit.disabled=false;submit.textContent=oldText}};
  // Independent watchdog: even a stalled IndexedDB request cannot hold the UI forever.
@@ -211,7 +220,7 @@ let [people,places]=await Promise.all([all('people'),all('places')]);assertActiv
  let checks=[];if(before){setStage('Checking traffic from previous ride');checks.push(await withDeadline(transitionCheck(before,newRide,token,buffer),12000));assertActive()}if(after){setStage('Checking traffic to next ride');checks.push(await withDeadline(transitionCheck(newRide,after,token,buffer),12000));assertActive()}let problem=checks.find(x=>x&&x.verdict==='CONFLICT')||checks.find(x=>x&&x.verdict==='UNKNOWN')||checks.find(x=>x&&x.verdict==='TIGHT');if(problem){let title=problem.verdict==='CONFLICT'?'🚨 SCHEDULE CONFLICT':problem.verdict==='TIGHT'?'⚠️ TIGHT SCHEDULE':'⚪ TRAFFIC NOT CHECKED',reason=problem.verdict==='CONFLICT'?'DO NOT ACCEPT without reviewing this conflict.':problem.verdict==='TIGHT'?'Your full 10-minute safety buffer does not fit.':'GigPilot cannot call this SAFE.';assertActive();showGuard(newRide,title,reason,guardHtml(problem));return}
  assertActive();setStage('Writing reservation to local database');await put('reservations',newRide);saved=true;assertActive();setStage('Refreshing reservation list');e.target.reset();rideMsg.innerHTML=checks.length?safeResultHtml(checks,buffer):'<div class="save-result save-neutral"><h3>✓ RESERVATION SAVED</h3><div>Route & traffic check completed. There is no adjacent reservation requiring a transition check.</div></div>';await refresh()
  }catch(error){
-   if(active){rideMsg.innerHTML='<div class="save-result save-neutral"><h3>⚠️ TRAFFIC NOT CHECKED — NOT SAVED</h3><div>'+esc(error?.message||'Unexpected error during schedule check.')+' (Stage: '+esc(stage)+')</div><div>Please retry. No reservation was saved by this attempt.</div></div>';console.error('GigPilot save check failed',error)}
+   if(active){rideMsg.innerHTML='<div class="save-result save-neutral"><h3>⚠️ TRAFFIC NOT CHECKED — '+(saved?'SAVE MAY HAVE COMPLETED':'NOT SAVED')+'</h3><div>'+esc(error?.message||'Unexpected error during schedule check.')+' (Stage: '+esc(stage)+')</div><div>Check the reservation list before retrying.</div></div>';console.error('GigPilot save check failed',error)}
  }finally{if(active)cleanup()}
 };
 
