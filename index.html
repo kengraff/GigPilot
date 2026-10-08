@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#111827">
 <link rel="manifest" href="manifest.webmanifest">
-<title>GigPilot v0.5.5</title>
+<title>GigPilot v0.5.6</title>
 <style>
 :root{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#111827;background:#f8fafc}
 *{box-sizing:border-box}body{margin:0;padding:16px;max-width:900px;margin:auto}
@@ -28,7 +28,7 @@ button.primary{background:#111827;color:#fff;border-color:#111827;width:100%}.ac
 </style>
 </head>
 <body>
-<header><div class="muted">GigPilot · local-first</div><h1>v0.5.5 Save & Traffic Reliability Fix</h1><div class="muted">Reservations, people, places and settings are stored on this device.</div></header>
+<header><div class="muted">GigPilot · local-first</div><h1>v0.5.6 Save Watchdog Fix</h1><div class="muted">Reservations, people, places and settings are stored on this device.</div></header>
 
 <nav class="card tabs">
 <button class="tab active" data-tab="reservations">Reservations</button>
@@ -183,12 +183,35 @@ function safeResultHtml(checks,buffer){
  let detail=tightest?`<div><strong>Available:</strong> ${tightest.x.gap} min · <strong>Current drive:</strong> ${tightest.x.travel} min · <strong>Safety buffer:</strong> ${buffer} min</div><div style="margin-top:6px"><strong>Remaining cushion:</strong> ${Math.max(0,tightest.margin)} min beyond your safety buffer.</div>`:'<div>No adjacent reservation required a travel-time comparison.</div>';
  return `<div class="save-result save-safe"><h3>🟢 SAFE TO ACCEPT</h3><div><strong>Traffic checked.</strong> This reservation fits your schedule.</div><div style="margin-top:8px">${detail}</div></div>`
 }
+// state declared below
 let reservationSaveInProgress=false;
-$('#rideForm').onsubmit=async e=>{e.preventDefault();if(reservationSaveInProgress)return;reservationSaveInProgress=true;let submit=e.submitter; if(submit){submit.disabled=true;submit.dataset.oldText=submit.textContent;submit.textContent='Checking route & traffic…'}rideMsg.innerHTML='';showChecking();try{let [people,places]=await Promise.all([all('people'),all('places')]);let pe=people.find(x=>x.id===ridePerson.value),pu=places.find(x=>x.id===ridePickup.value),dr=places.find(x=>x.id===rideDropoff.value);let pickup=pu?.address||pickupText.value.trim(),dropoff=dr?.address||dropoffText.value.trim();if(!pickup||!dropoff){alert('Choose a saved place or enter text for both pickup and destination.');return}let newRide={id:crypto.randomUUID(),service:service.value,passengerId:pe?.id||'',passengerName:pe?.name||'',date:date.value,time:time.value,durationMin:Number(durationMin.value),pickupPlaceId:pu?.id||'',pickupName:pu?.name||pickupText.value.trim(),pickup,dropoffPlaceId:dr?.id||'',dropoffName:dr?.name||dropoffText.value.trim(),dropoff,notes:notes.value.trim(),createdAt:new Date().toISOString()};let existing=(await all('reservations')).filter(r=>r.date===newRide.date&&r.durationMin).sort((a,b)=>rideStartMs(a)-rideStartMs(b));let ns=rideStartMs(newRide),ne=ns+Number(newRide.durationMin)*60000,conflict=null;for(const r of existing){let rs=rideStartMs(r),re=rs+Number(r.durationMin)*60000;if(ns<re&&ne>rs){conflict={r,rs,re};break}}if(conflict){let overlap=Math.ceil((Math.min(ne,conflict.re)-Math.max(ns,conflict.rs))/60000);showGuard(newRide,'🚨 SCHEDULE CONFLICT','DO NOT ACCEPT without reviewing this conflict.',`<p><strong>Existing:</strong> ${esc(fmtTime(conflict.r.time))} for ${esc(conflict.r.durationMin)} min (ends about ${esc(new Date(conflict.re).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'}))})</p><p><strong>New:</strong> ${esc(fmtTime(newRide.time))} for ${esc(newRide.durationMin)} min</p><p style="font-size:20px"><strong>${overlap}-minute overlap.</strong></p>`);return}
- let token=await getMapboxToken(),bufRec=await getOne('settings','safetyBuffer'),buffer=Math.max(0,Number(bufRec?.value??10));if(!bufRec)await put('settings',{id:'safetyBuffer',value:buffer});let before=existing.filter(r=>rideStartMs(r)<ns).at(-1)||null,after=existing.find(r=>rideStartMs(r)>ns)||null;
- if(!token&&(before||after)){showGuard(newRide,'⚪ TRAFFIC NOT CHECKED','GigPilot cannot call this SAFE.',`<p>No Mapbox token is available on this device.</p><p>Save a public token in Routing, or choose <strong>Save Anyway</strong> to override.</p>`);return}
- let checks=[];if(before)checks.push(await withDeadline(transitionCheck(before,newRide,token,buffer),12000));if(after)checks.push(await withDeadline(transitionCheck(newRide,after,token,buffer),12000));let problem=checks.find(x=>x&&x.verdict==='CONFLICT')||checks.find(x=>x&&x.verdict==='UNKNOWN')||checks.find(x=>x&&x.verdict==='TIGHT');if(problem){let title=problem.verdict==='CONFLICT'?'🚨 SCHEDULE CONFLICT':problem.verdict==='TIGHT'?'⚠️ TIGHT SCHEDULE':'⚪ TRAFFIC NOT CHECKED',reason=problem.verdict==='CONFLICT'?'DO NOT ACCEPT without reviewing this conflict.':problem.verdict==='TIGHT'?'Your full 10-minute safety buffer does not fit.':'GigPilot cannot call this SAFE.';showGuard(newRide,title,reason,guardHtml(problem));return}
- await put('reservations',newRide);e.target.reset();rideMsg.innerHTML=checks.length?safeResultHtml(checks,buffer):'<div class="save-result save-neutral"><h3>✓ RESERVATION SAVED</h3><div>Route & traffic check completed. There is no adjacent reservation requiring a transition check.</div></div>';await refresh()}catch(error){rideMsg.innerHTML='<div class="save-result save-neutral"><h3>⚠️ TRAFFIC NOT CHECKED — NOT SAVED</h3><div>'+esc(error?.message||'Unexpected error during schedule check.')+'</div><div>Please retry. No reservation was saved by this attempt.</div></div>';console.error('GigPilot save check failed',error)}finally{reservationSaveInProgress=false;hideChecking();if(submit){submit.disabled=false;submit.textContent=submit.dataset.oldText||'Save reservation';delete submit.dataset.oldText}}};
+$('#rideForm').onsubmit=async e=>{
+ e.preventDefault();if(reservationSaveInProgress)return;
+ reservationSaveInProgress=true;
+ const submit=e.submitter||$('#rideForm button[type=submit]');
+ const oldText=submit?.textContent||'Save reservation';
+ if(submit){submit.disabled=true;submit.textContent='Checking route & traffic…'}
+ rideMsg.innerHTML='';showChecking();
+ let active=true,saved=false,watchdog;
+ const assertActive=()=>{if(!active)throw Error('Save check expired. No reservation was saved by this attempt.')};
+ const cleanup=()=>{clearTimeout(watchdog);active=false;reservationSaveInProgress=false;hideChecking();if(submit){submit.disabled=false;submit.textContent=oldText}};
+ // Independent watchdog: even a stalled IndexedDB request cannot hold the UI forever.
+ watchdog=setTimeout(()=>{
+   if(!active)return;
+   active=false;
+   rideMsg.innerHTML='<div class="save-result save-neutral"><h3>⚠️ CHECK TIMED OUT — NOT SAVED</h3><div>GigPilot could not finish verifying traffic within 25 seconds. Do not assume this ride is safe. Try again when connected.</div></div>';
+   cleanup();
+ },25000);
+ try{
+let [people,places]=await Promise.all([all('people'),all('places')]);let pe=people.find(x=>x.id===ridePerson.value),pu=places.find(x=>x.id===ridePickup.value),dr=places.find(x=>x.id===rideDropoff.value);let pickup=pu?.address||pickupText.value.trim(),dropoff=dr?.address||dropoffText.value.trim();if(!pickup||!dropoff){alert('Choose a saved place or enter text for both pickup and destination.');return}let newRide={id:crypto.randomUUID(),service:service.value,passengerId:pe?.id||'',passengerName:pe?.name||'',date:date.value,time:time.value,durationMin:Number(durationMin.value),pickupPlaceId:pu?.id||'',pickupName:pu?.name||pickupText.value.trim(),pickup,dropoffPlaceId:dr?.id||'',dropoffName:dr?.name||dropoffText.value.trim(),dropoff,notes:notes.value.trim(),createdAt:new Date().toISOString()};let existing=(await all('reservations')).filter(r=>r.date===newRide.date&&r.durationMin).sort((a,b)=>rideStartMs(a)-rideStartMs(b));let ns=rideStartMs(newRide),ne=ns+Number(newRide.durationMin)*60000,conflict=null;for(const r of existing){let rs=rideStartMs(r),re=rs+Number(r.durationMin)*60000;if(ns<re&&ne>rs){conflict={r,rs,re};break}}if(conflict){let overlap=Math.ceil((Math.min(ne,conflict.re)-Math.max(ns,conflict.rs))/60000);assertActive();showGuard(newRide,'🚨 SCHEDULE CONFLICT','DO NOT ACCEPT without reviewing this conflict.',`<p><strong>Existing:</strong> ${esc(fmtTime(conflict.r.time))} for ${esc(conflict.r.durationMin)} min (ends about ${esc(new Date(conflict.re).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'}))})</p><p><strong>New:</strong> ${esc(fmtTime(newRide.time))} for ${esc(newRide.durationMin)} min</p><p style="font-size:20px"><strong>${overlap}-minute overlap.</strong></p>`);return}
+ let token=await getMapboxToken(),bufRec=await getOne('settings','safetyBuffer'),buffer=Math.max(0,Number(bufRec?.value??10));let before=existing.filter(r=>rideStartMs(r)<ns).at(-1)||null,after=existing.find(r=>rideStartMs(r)>ns)||null;
+ if(!token&&(before||after)){assertActive();showGuard(newRide,'⚪ TRAFFIC NOT CHECKED','GigPilot cannot call this SAFE.',`<p>No Mapbox token is available on this device.</p><p>Save a public token in Routing, or choose <strong>Save Anyway</strong> to override.</p>`);return}
+ let checks=[];if(before)checks.push(await withDeadline(transitionCheck(before,newRide,token,buffer),12000));if(after)checks.push(await withDeadline(transitionCheck(newRide,after,token,buffer),12000));let problem=checks.find(x=>x&&x.verdict==='CONFLICT')||checks.find(x=>x&&x.verdict==='UNKNOWN')||checks.find(x=>x&&x.verdict==='TIGHT');if(problem){let title=problem.verdict==='CONFLICT'?'🚨 SCHEDULE CONFLICT':problem.verdict==='TIGHT'?'⚠️ TIGHT SCHEDULE':'⚪ TRAFFIC NOT CHECKED',reason=problem.verdict==='CONFLICT'?'DO NOT ACCEPT without reviewing this conflict.':problem.verdict==='TIGHT'?'Your full 10-minute safety buffer does not fit.':'GigPilot cannot call this SAFE.';assertActive();showGuard(newRide,title,reason,guardHtml(problem));return}
+ assertActive();await put('reservations',newRide);saved=true;assertActive();e.target.reset();rideMsg.innerHTML=checks.length?safeResultHtml(checks,buffer):'<div class="save-result save-neutral"><h3>✓ RESERVATION SAVED</h3><div>Route & traffic check completed. There is no adjacent reservation requiring a transition check.</div></div>';await refresh()
+ }catch(error){
+   if(active){rideMsg.innerHTML='<div class="save-result save-neutral"><h3>⚠️ TRAFFIC NOT CHECKED — NOT SAVED</h3><div>'+esc(error?.message||'Unexpected error during schedule check.')+'</div><div>Please retry. No reservation was saved by this attempt.</div></div>';console.error('GigPilot save check failed',error)}
+ }finally{if(active)cleanup()}
+};
 
 async function getMapboxToken(){let x=await getOne('settings','mapboxToken');return x?.value||''}
 async function showTokenStatus(){let t=await getMapboxToken();mapboxToken.value=t;tokenStatus.textContent=t?'✓ Public Mapbox token saved locally on this device.':'No Mapbox token saved yet.'}
