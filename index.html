@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#111827">
 <link rel="manifest" href="manifest.webmanifest">
-<title>GigPilot v0.6.2</title>
+<title>GigPilot v0.6.3</title>
 <style>
 :root{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#111827;background:#f8fafc}
 *{box-sizing:border-box}body{margin:0;padding:16px;max-width:900px;margin:auto}
@@ -26,11 +26,11 @@ button.primary{background:#111827;color:#fff;border-color:#111827;width:100%}.ac
 .save-result{border:3px solid;border-radius:16px;padding:16px;margin-top:12px;font-size:16px}.save-result h3{font-size:25px;line-height:1.1;margin:0 0 8px}.save-safe{background:#f0fdf4;border-color:#16a34a;color:#166534}.save-neutral{background:#f8fafc;border-color:#64748b;color:#334155}
 #saveNotice{position:fixed;left:12px;right:12px;bottom:max(14px,env(safe-area-inset-bottom));max-width:650px;margin:0 auto;z-index:10001;box-shadow:0 12px 40px rgba(0,0,0,.22);background:white;border-radius:16px;padding:14px;border:3px solid #64748b}#saveNotice.hidden{display:none}#saveNotice.safe{border-color:#16a34a;background:#f0fdf4}#saveNotice.warning{border-color:#dc2626;background:#fef2f2}#saveNotice .notice-title{font-weight:900;font-size:20px;margin-bottom:5px}#saveNotice .notice-close{float:right;min-height:36px;padding:6px 10px;font-size:14px}
 @media(max-width:560px){.grid,.summary{grid-template-columns:1fr}.tabs button{white-space:nowrap}}
- .details-modal{border-color:#64748b;max-height:88dvh;overflow-y:auto}.details-modal h2{color:#111827;font-size:24px}.detail-row{padding:10px 0;border-bottom:1px solid #e2e8f0;overflow-wrap:anywhere}.detail-label{display:block;font-size:13px;color:#64748b;font-weight:700;margin-bottom:4px}.detail-value{white-space:pre-wrap}.detail-notes{background:#f1f5f9;border-radius:12px;padding:12px;margin-top:12px;white-space:pre-wrap;overflow-wrap:anywhere}.ride-view{cursor:pointer;text-align:left;display:block;width:100%;border:0;background:transparent;padding:0;font-weight:inherit;color:inherit}.ride-view:focus-visible{outline:3px solid #2563eb;border-radius:6px}
+ .details-modal{border-color:#64748b;max-height:88dvh;overflow-y:auto}.details-modal h2{color:#111827;font-size:24px}.detail-row{padding:10px 0;border-bottom:1px solid #e2e8f0;overflow-wrap:anywhere}.detail-label{display:block;font-size:13px;color:#64748b;font-weight:700;margin-bottom:4px}.detail-value{white-space:pre-wrap}.detail-notes{background:#f1f5f9;border-radius:12px;padding:12px;margin-top:12px;white-space:pre-wrap;overflow-wrap:anywhere}.day-switch{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:12px 0}.day-switch button.selected{background:#111827;color:white;border-color:#111827}.daily-entry{padding:12px 0;border-top:1px solid #e2e8f0}.daily-entry:first-child{border-top:0}.daily-time{font-size:20px;font-weight:800}.daily-note{font-size:13px;color:#475569;margin-top:5px}.ride-view{cursor:pointer;text-align:left;display:block;width:100%;border:0;background:transparent;padding:0;font-weight:inherit;color:inherit}.ride-view:focus-visible{outline:3px solid #2563eb;border-radius:6px}
 </style>
 </head>
 <body>
-<header><div class="muted">GigPilot · local-first</div><h1>v0.6.2 Two-Way Traffic Report</h1><div class="muted">Reservations, people, places and settings are stored on this device.</div></header>
+<header><div class="muted">GigPilot · local-first</div><h1>v0.6.3 Daily Schedule</h1><div class="muted">Reservations, people, places and settings are stored on this device.</div></header>
 
 <nav class="card tabs">
 <button class="tab active" data-tab="reservations">Reservations</button>
@@ -42,6 +42,8 @@ button.primary{background:#111827;color:#fff;border-color:#111827;width:100%}.ac
 
 <main>
 <section id="reservations" class="panel">
+<div class="card" id="dailySchedule"><div class="actions" style="justify-content:space-between"><h2 style="margin:0">Daily Schedule</h2><span id="dailyCount" class="badge">0 rides</span></div><div class="day-switch"><button type="button" id="showToday" class="selected" aria-pressed="true">Today</button><button type="button" id="showTomorrow" aria-pressed="false">Tomorrow</button></div><div class="muted small" id="dailyDate"></div><div id="dailyRides" aria-live="polite"></div><p class="muted small" style="margin-bottom:0">Schedule only · Traffic status requires a fresh route check. Past reservations remain in the full list below.</p></div>
+
 <div class="card"><h2 id="rideFormTitle">Add reservation</h2>
 <form id="rideForm"><div class="grid">
 <label>Type<select id="service"><option>Uber</option><option>Lyft</option><option>Private</option><option>Personal</option><option>Other</option></select></label>
@@ -148,10 +150,23 @@ function getOne(s,id){return new Promise((r,j)=>{let q=os(s).get(id);q.onsuccess
 function fmtDate(d){let[y,m,day]=d.split('-').map(Number);let dt=new Date(y,m-1,day,12,0,0);return new Intl.DateTimeFormat('en-US',{weekday:'short',month:'short',day:'numeric',year:'numeric'}).format(dt)}
 function fmtTime(t){let[h,m]=t.split(':').map(Number),a=h>=12?'PM':'AM';h=h%12||12;return `${h}:${String(m).padStart(2,'0')} ${a}`}
 function dl(n,t,type){let a=document.createElement('a');a.href=URL.createObjectURL(new Blob([t],{type}));a.download=n;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},500)}
+let selectedScheduleDay='today';
+function localDayKey(offset=0){const d=new Date();d.setHours(12,0,0,0);d.setDate(d.getDate()+offset);return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`}
+function renderDailySchedule(rides){
+ const target=localDayKey(selectedScheduleDay==='tomorrow'?1:0),items=rides.filter(r=>r.date===target).sort((a,b)=>String(a.time).localeCompare(String(b.time)));
+ $('#dailyDate').textContent=fmtDate(target);$('#dailyCount').textContent=`${items.length} ${items.length===1?'ride':'rides'}`;
+ $('#showToday').classList.toggle('selected',selectedScheduleDay==='today');$('#showTomorrow').classList.toggle('selected',selectedScheduleDay==='tomorrow');
+ $('#showToday').setAttribute('aria-pressed',String(selectedScheduleDay==='today'));$('#showTomorrow').setAttribute('aria-pressed',String(selectedScheduleDay==='tomorrow'));
+ let overlap=new Set();for(let i=1;i<items.length;i++){const a=items[i-1],b=items[i];if(Number(a.durationMin)>0&&rideStartMs(b)<rideStartMs(a)+Number(a.durationMin)*60000)overlap.add(a.id),overlap.add(b.id)}
+ $('#dailyRides').innerHTML=items.length?items.map(r=>`<div class="daily-entry">${overlap.has(r.id)?'<div class="conflict-card"><strong>🚨 TIME OVERLAP — review schedule</strong></div>':''}<button type="button" class="ride-view" data-vride="${esc(r.id)}" aria-label="View ${esc(fmtTime(r.time))} reservation details"><div class="daily-time">${esc(fmtTime(r.time))} <span class="badge">${esc(r.service||'Other')}</span></div><strong>${esc(r.passengerName||r.passenger||'Reservation')}</strong><div class="muted small">${esc(r.pickupName||r.pickup||'Pickup not specified')} → ${esc(r.dropoffName||r.dropoff||'Destination not specified')}</div><div class="small">${esc(r.durationMin||'?')} min estimated${r.notes?' · 📝 Notes available':''}</div><span class="small" style="color:#2563eb">View details →</span></button></div>`).join(''):'<p class="muted">No reservations scheduled for this day.</p>';
+}
+$('#showToday').onclick=()=>{selectedScheduleDay='today';refresh()};
+$('#showTomorrow').onclick=()=>{selectedScheduleDay='tomorrow';refresh()};
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)refresh()});
 async function refresh(){
  const [rides,people,places]=await Promise.all([all('reservations'),all('people'),all('places')]);
  rides.sort((a,b)=>(a.date+a.time).localeCompare(b.date+b.time));
- $('#rideCount').textContent=rides.length;$('#personCount').textContent=people.length;$('#placeCount').textContent=places.length;
+ renderDailySchedule(rides);$('#rideCount').textContent=rides.length;$('#personCount').textContent=people.length;$('#placeCount').textContent=places.length;
  $('#bRides').textContent=rides.length;$('#bPeople').textContent=people.length;$('#bPlaces').textContent=places.length;
  let overlapIds=new Set();for(let i=1;i<rides.length;i++){let a=rides[i-1],b=rides[i];if(a.date===b.date&&a.durationMin&&rideStartMs(b)<rideStartMs(a)+Number(a.durationMin)*60000)overlapIds.add(b.id)}
  $('#rideList').innerHTML=rides.length?rides.map(r=>`<div class="item">${overlapIds.has(r.id)?'<div class="conflict-card"><div class="conflict-title">🚨 CONFLICT · OVERLAP</div><strong>DO NOT ACCEPT</strong> — this reservation starts before the previous reservation is expected to end.</div>':''}<button type="button" class="ride-view" data-vride="${esc(r.id)}" aria-label="View reservation details"><span class="badge">${esc(r.service)}</span> <strong>${esc(r.passengerName||r.passenger||'Reservation')}</strong><div>${fmtDate(r.date)} · ${fmtTime(r.time)}${r.durationMin?` · ${esc(r.durationMin)} min est.`:''}</div><div class="muted">${esc(r.pickupName||r.pickup)} → ${esc(r.dropoffName||r.dropoff)}</div><span class="small" style="color:#2563eb">View details →</span></button><button data-eride="${esc(r.id)}" style="margin-top:7px">Edit</button> <button data-dride="${esc(r.id)}" style="margin-top:7px">Delete</button></div>`).join(''):'<p class="muted">No reservations yet.</p>';
