@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#111827">
 <link rel="manifest" href="manifest.webmanifest">
-<title>GigPilot v0.6.3</title>
+<title>GigPilot v0.6.4</title>
 <style>
 :root{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#111827;background:#f8fafc}
 *{box-sizing:border-box}body{margin:0;padding:16px;max-width:900px;margin:auto}
@@ -27,10 +27,11 @@ button.primary{background:#111827;color:#fff;border-color:#111827;width:100%}.ac
 #saveNotice{position:fixed;left:12px;right:12px;bottom:max(14px,env(safe-area-inset-bottom));max-width:650px;margin:0 auto;z-index:10001;box-shadow:0 12px 40px rgba(0,0,0,.22);background:white;border-radius:16px;padding:14px;border:3px solid #64748b}#saveNotice.hidden{display:none}#saveNotice.safe{border-color:#16a34a;background:#f0fdf4}#saveNotice.warning{border-color:#dc2626;background:#fef2f2}#saveNotice .notice-title{font-weight:900;font-size:20px;margin-bottom:5px}#saveNotice .notice-close{float:right;min-height:36px;padding:6px 10px;font-size:14px}
 @media(max-width:560px){.grid,.summary{grid-template-columns:1fr}.tabs button{white-space:nowrap}}
  .details-modal{border-color:#64748b;max-height:88dvh;overflow-y:auto}.details-modal h2{color:#111827;font-size:24px}.detail-row{padding:10px 0;border-bottom:1px solid #e2e8f0;overflow-wrap:anywhere}.detail-label{display:block;font-size:13px;color:#64748b;font-weight:700;margin-bottom:4px}.detail-value{white-space:pre-wrap}.detail-notes{background:#f1f5f9;border-radius:12px;padding:12px;margin-top:12px;white-space:pre-wrap;overflow-wrap:anywhere}.day-switch{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:12px 0}.day-switch button.selected{background:#111827;color:white;border-color:#111827}.daily-entry{padding:12px 0;border-top:1px solid #e2e8f0}.daily-entry:first-child{border-top:0}.daily-time{font-size:20px;font-weight:800}.daily-note{font-size:13px;color:#475569;margin-top:5px}.ride-view{cursor:pointer;text-align:left;display:block;width:100%;border:0;background:transparent;padding:0;font-weight:inherit;color:inherit}.ride-view:focus-visible{outline:3px solid #2563eb;border-radius:6px}
+ .departure-panel{border:1px solid #bfdbfe;background:#eff6ff;border-radius:13px;padding:12px;margin:12px 0}.departure-panel label{font-size:14px;font-weight:700}.departure-panel input{background:#fff}.departure-result{background:white;border:1px solid #94a3b8;border-radius:12px;padding:12px;margin-top:10px;overflow-wrap:anywhere}.departure-result strong{font-size:20px}.departure-warning{color:#9a3412;font-weight:700}.departure-actions{display:flex;gap:8px;margin-top:10px}.departure-actions button{flex:1}.departure-actions button:disabled{opacity:.6}
 </style>
 </head>
 <body>
-<header><div class="muted">GigPilot · local-first</div><h1>v0.6.3 Daily Schedule</h1><div class="muted">Reservations, people, places and settings are stored on this device.</div></header>
+<header><div class="muted">GigPilot · local-first</div><h1>v0.6.4 Departure Assistant</h1><div class="muted">Reservations, people, places and settings are stored on this device.</div></header>
 
 <nav class="card tabs">
 <button class="tab active" data-tab="reservations">Reservations</button>
@@ -42,7 +43,7 @@ button.primary{background:#111827;color:#fff;border-color:#111827;width:100%}.ac
 
 <main>
 <section id="reservations" class="panel">
-<div class="card" id="dailySchedule"><div class="actions" style="justify-content:space-between"><h2 style="margin:0">Daily Schedule</h2><span id="dailyCount" class="badge">0 rides</span></div><div class="day-switch"><button type="button" id="showToday" class="selected" aria-pressed="true">Today</button><button type="button" id="showTomorrow" aria-pressed="false">Tomorrow</button></div><div class="muted small" id="dailyDate"></div><div id="dailyRides" aria-live="polite"></div><p class="muted small" style="margin-bottom:0">Schedule only · Traffic status requires a fresh route check. Past reservations remain in the full list below.</p></div>
+<div class="card" id="dailySchedule"><div class="actions" style="justify-content:space-between"><h2 style="margin:0">Daily Schedule</h2><span id="dailyCount" class="badge">0 rides</span></div><div class="day-switch"><button type="button" id="showToday" class="selected" aria-pressed="true">Today</button><button type="button" id="showTomorrow" aria-pressed="false">Tomorrow</button></div><div class="muted small" id="dailyDate"></div><div class="departure-panel"><strong>🚗 Departure Time Assistant</strong><p class="small muted">Enter where you will start driving. GigPilot checks a current traffic route to your selected pickup. It does not track your location.</p><label for="departureOrigin">Starting address or place</label><input id="departureOrigin" type="text" placeholder="Full address or business name" autocomplete="street-address"><p class="small muted" style="margin-bottom:0">Your starting address is not saved to reservations or backups. Traffic estimates are snapshots, not forecasts.</p></div><div id="dailyRides" aria-live="polite"></div><p class="muted small" style="margin-bottom:0">Schedule only · Traffic status requires a fresh route check. Past reservations remain in the full list below.</p></div>
 
 <div class="card"><h2 id="rideFormTitle">Add reservation</h2>
 <form id="rideForm"><div class="grid">
@@ -151,6 +152,7 @@ function fmtDate(d){let[y,m,day]=d.split('-').map(Number);let dt=new Date(y,m-1,
 function fmtTime(t){let[h,m]=t.split(':').map(Number),a=h>=12?'PM':'AM';h=h%12||12;return `${h}:${String(m).padStart(2,'0')} ${a}`}
 function dl(n,t,type){let a=document.createElement('a');a.href=URL.createObjectURL(new Blob([t],{type}));a.download=n;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},500)}
 let selectedScheduleDay='today';
+let departureChecks={};let departureRequestId=0;
 function localDayKey(offset=0){const d=new Date();d.setHours(12,0,0,0);d.setDate(d.getDate()+offset);return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`}
 function renderDailySchedule(rides){
  const target=localDayKey(selectedScheduleDay==='tomorrow'?1:0),items=rides.filter(r=>r.date===target).sort((a,b)=>String(a.time).localeCompare(String(b.time)));
@@ -158,15 +160,15 @@ function renderDailySchedule(rides){
  $('#showToday').classList.toggle('selected',selectedScheduleDay==='today');$('#showTomorrow').classList.toggle('selected',selectedScheduleDay==='tomorrow');
  $('#showToday').setAttribute('aria-pressed',String(selectedScheduleDay==='today'));$('#showTomorrow').setAttribute('aria-pressed',String(selectedScheduleDay==='tomorrow'));
  let overlap=new Set();for(let i=1;i<items.length;i++){const a=items[i-1],b=items[i];if(Number(a.durationMin)>0&&rideStartMs(b)<rideStartMs(a)+Number(a.durationMin)*60000)overlap.add(a.id),overlap.add(b.id)}
- $('#dailyRides').innerHTML=items.length?items.map(r=>`<div class="daily-entry">${overlap.has(r.id)?'<div class="conflict-card"><strong>🚨 TIME OVERLAP — review schedule</strong></div>':''}<button type="button" class="ride-view" data-vride="${esc(r.id)}" aria-label="View ${esc(fmtTime(r.time))} reservation details"><div class="daily-time">${esc(fmtTime(r.time))} <span class="badge">${esc(r.service||'Other')}</span></div><strong>${esc(r.passengerName||r.passenger||'Reservation')}</strong><div class="muted small">${esc(r.pickupName||r.pickup||'Pickup not specified')} → ${esc(r.dropoffName||r.dropoff||'Destination not specified')}</div><div class="small">${esc(r.durationMin||'?')} min estimated${r.notes?' · 📝 Notes available':''}</div><span class="small" style="color:#2563eb">View details →</span></button></div>`).join(''):'<p class="muted">No reservations scheduled for this day.</p>';
+ $('#dailyRides').innerHTML=items.length?items.map(r=>`<div class="daily-entry">${overlap.has(r.id)?'<div class="conflict-card"><strong>🚨 TIME OVERLAP — review schedule</strong></div>':''}<button type="button" class="ride-view" data-vride="${esc(r.id)}" aria-label="View ${esc(fmtTime(r.time))} reservation details"><div class="daily-time">${esc(fmtTime(r.time))} <span class="badge">${esc(r.service||'Other')}</span></div><strong>${esc(r.passengerName||r.passenger||'Reservation')}</strong><div class="muted small">${esc(r.pickupName||r.pickup||'Pickup not specified')} → ${esc(r.dropoffName||r.dropoff||'Destination not specified')}</div><div class="small">${esc(r.durationMin||'?')} min estimated${r.notes?' · 📝 Notes available':''}</div><span class="small" style="color:#2563eb">View details →</span></button><div class="departure-actions"><button type="button" data-depart="${esc(r.id)}">🚗 Check departure time</button></div><div id="depart-result-${esc(r.id)}" aria-live="polite"></div></div>`).join(''):'<p class="muted">No reservations scheduled for this day.</p>';
 }
-$('#showToday').onclick=()=>{selectedScheduleDay='today';refresh()};
-$('#showTomorrow').onclick=()=>{selectedScheduleDay='tomorrow';refresh()};
+$('#showToday').onclick=()=>{selectedScheduleDay='today';departureRequestId++;refresh()};
+$('#showTomorrow').onclick=()=>{selectedScheduleDay='tomorrow';departureRequestId++;refresh()};
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)refresh()});
 async function refresh(){
  const [rides,people,places]=await Promise.all([all('reservations'),all('people'),all('places')]);
  rides.sort((a,b)=>(a.date+a.time).localeCompare(b.date+b.time));
- renderDailySchedule(rides);$('#rideCount').textContent=rides.length;$('#personCount').textContent=people.length;$('#placeCount').textContent=places.length;
+ const departureOriginValue=$('#departureOrigin')?.value||'';renderDailySchedule(rides);$('#departureOrigin').value=departureOriginValue;$('#rideCount').textContent=rides.length;$('#personCount').textContent=people.length;$('#placeCount').textContent=places.length;
  $('#bRides').textContent=rides.length;$('#bPeople').textContent=people.length;$('#bPlaces').textContent=places.length;
  let overlapIds=new Set();for(let i=1;i<rides.length;i++){let a=rides[i-1],b=rides[i];if(a.date===b.date&&a.durationMin&&rideStartMs(b)<rideStartMs(a)+Number(a.durationMin)*60000)overlapIds.add(b.id)}
  $('#rideList').innerHTML=rides.length?rides.map(r=>`<div class="item">${overlapIds.has(r.id)?'<div class="conflict-card"><div class="conflict-title">🚨 CONFLICT · OVERLAP</div><strong>DO NOT ACCEPT</strong> — this reservation starts before the previous reservation is expected to end.</div>':''}<button type="button" class="ride-view" data-vride="${esc(r.id)}" aria-label="View reservation details"><span class="badge">${esc(r.service)}</span> <strong>${esc(r.passengerName||r.passenger||'Reservation')}</strong><div>${fmtDate(r.date)} · ${fmtTime(r.time)}${r.durationMin?` · ${esc(r.durationMin)} min est.`:''}</div><div class="muted">${esc(r.pickupName||r.pickup)} → ${esc(r.dropoffName||r.dropoff)}</div><span class="small" style="color:#2563eb">View details →</span></button><button data-eride="${esc(r.id)}" style="margin-top:7px">Edit</button> <button data-dride="${esc(r.id)}" style="margin-top:7px">Delete</button></div>`).join(''):'<p class="muted">No reservations yet.</p>';
@@ -176,6 +178,30 @@ async function refresh(){
  pop('#ridePerson',people,'none / type later');pop('#ridePickup',places,'choose saved place');pop('#rideDropoff',places,'choose saved place');pop('#personPlace',places,'none');pop('#routeFrom',places,'choose saved place');pop('#routeTo',places,'choose saved place');
  document.querySelectorAll('[data-eplace]').forEach(b=>b.onclick=async()=>{let p=(await all('places')).find(x=>x.id===b.dataset.eplace);if(!p)return;placeName.value=p.name||'';placeAlias.value=p.alias||'';placeAddress.value=p.address||'';placeNotes.value=p.notes||'';placeForm.dataset.editId=p.id;placeForm.querySelector('button.primary').textContent='Update place';document.querySelector('[data-tab=places]').scrollIntoView({behavior:'smooth'});});
  document.querySelectorAll('[data-eperson]').forEach(b=>b.onclick=async()=>{let p=(await all('people')).find(x=>x.id===b.dataset.eperson);if(!p)return;personName.value=p.name||'';personNick.value=p.nickname||'';personPlace.value=p.defaultPlaceId||'';personNotes.value=p.notes||'';personForm.dataset.editId=p.id;personForm.querySelector('button.primary').textContent='Update person';document.querySelector('[data-tab=people]').scrollIntoView({behavior:'smooth'});});
+ document.querySelectorAll('[data-depart]').forEach(b=>b.onclick=async()=>{
+  const requestId=++departureRequestId,rideId=b.dataset.depart,ride=rides.find(x=>x.id===rideId),result=document.getElementById('depart-result-'+rideId),origin=$('#departureOrigin').value.trim();
+  if(!ride||!result)return;
+  if(!origin){result.innerHTML='<div class="departure-result departure-warning">Enter your starting address above before checking a departure time.</div>';$('#departureOrigin').focus();return}
+  const destination=ride.pickup||ride.pickupName||'';
+  if(!destination){result.innerHTML='<div class="departure-result departure-warning">This reservation has no pickup address. Add a pickup address before routing.</div>';return}
+  b.disabled=true;b.textContent='Checking traffic…';result.innerHTML='<div class="departure-result">Checking Mapbox route and traffic…</div>';
+  try{
+   const token=await getMapboxToken();if(!token)throw Error('No Mapbox token configured. Add your token in Routing first.');
+   const bufRec=await getOne('settings','safetyBuffer'),buffer=Math.max(0,Number(bufRec?.value??10));
+   const [a,d]=await Promise.all([geocodeTemp(origin,token),geocodeTemp(destination,token)]);
+   const route=await trafficRoute(a.coord,d.coord,token);
+   if(requestId!==departureRequestId||!result.isConnected)return;
+   const travel=mins(route.duration),total=travel+buffer,[yy,mm,dd]=ride.date.split('-').map(Number),[hh,mi]=ride.time.split(':').map(Number);
+   const pickupDate=new Date(yy,mm-1,dd,hh,mi),departDate=new Date(pickupDate.getTime()-total*60000),now=new Date();
+   const fmtClock=d=>d.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'});
+   const sameDay=departDate.getFullYear()===yy&&departDate.getMonth()===mm-1&&departDate.getDate()===dd;
+   const departLabel=(sameDay?'':departDate.toLocaleDateString('en-US',{month:'short',day:'numeric'})+' · ')+fmtClock(departDate);
+   const remaining=Math.floor((departDate-now)/60000);
+   const timing=now>=pickupDate?'Pickup time has passed. This is a retrospective calculation.':remaining<0?'The calculated departure time has already passed. Recheck your route and schedule immediately.':remaining<=15?'Departure is within '+remaining+' minutes. Recheck conditions before driving.':'';
+   result.innerHTML=`<div class="departure-result"><div class="small muted">RECOMMENDED DEPARTURE · CURRENT TRAFFIC SNAPSHOT</div><strong>${esc(departLabel)}</strong><div class="small">Drive ${travel} min + safety buffer ${buffer} min = ${total} min before pickup</div><div class="small">From: ${esc(a.label)}</div><div class="small">To: ${esc(d.label)}</div><div class="small muted">Checked ${esc(now.toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}))} · ${esc(miles(route.distance))} miles</div>${timing?`<div class="departure-warning">⚠️ ${esc(timing)}</div>`:''}<div class="departure-warning small">Not a future traffic forecast. Recheck near departure. This is not a guaranteed arrival time.</div></div>`;
+  }catch(err){if(requestId===departureRequestId&&result.isConnected)result.innerHTML='<div class="departure-result departure-warning">⚪ DEPARTURE NOT VERIFIED — '+esc(err.message||'Route unavailable')+'</div>'}
+  finally{if(requestId===departureRequestId&&b.isConnected){b.disabled=false;b.textContent='🚗 Recheck departure time'}}
+ });
  document.querySelectorAll('[data-vride]').forEach(b=>b.onclick=async()=>{const r=await getOne('reservations',b.dataset.vride);if(!r)return;const rows=[['Type',r.service],['Passenger',r.passengerName||r.passenger||'Not specified'],['Date',r.date?fmtDate(r.date):'Not specified'],['Pickup time',r.time?fmtTime(r.time):'Not specified'],['Estimated duration',r.durationMin?`${r.durationMin} minutes`:'Not specified'],['Pickup',r.pickupName||r.pickup||'Not specified'],['Destination',r.dropoffName||r.dropoff||'Not specified']];detailsContent.innerHTML=rows.map(([label,value])=>`<div class="detail-row"><span class="detail-label">${esc(label)}</span><div class="detail-value">${esc(value)}</div></div>`).join('')+`<div class="detail-notes"><span class="detail-label">📝 Notes / passenger instructions</span><div class="detail-value">${esc(r.notes||'No notes added.')}</div></div>`;detailsModal.dataset.rideId=r.id;detailsModal.classList.remove('hidden');detailsCloseBtn.focus();});
  document.querySelectorAll('[data-eride]').forEach(b=>b.onclick=async()=>{if(reservationSaveInProgress)return;let r=await getOne('reservations',b.dataset.eride);if(!r)return;dismissSaveNotice();rideForm.dataset.editId=r.id;service.value=r.service||'Other';ridePerson.value=r.passengerId||'';date.value=r.date||'';time.value=r.time||'';durationMin.value=r.durationMin||'';ridePickup.value=r.pickupPlaceId||'';rideDropoff.value=r.dropoffPlaceId||'';pickupText.value=r.pickupPlaceId?'':(r.pickup||r.pickupName||'');dropoffText.value=r.dropoffPlaceId?'':(r.dropoff||r.dropoffName||'');notes.value=r.notes||'';rideFormTitle.textContent='Edit reservation';rideForm.querySelector('button[type=submit]').textContent='Update reservation';cancelRideEdit.classList.remove('hidden');rideForm.scrollIntoView({behavior:'smooth',block:'start'});});
  document.querySelectorAll('[data-dride]').forEach(b=>b.onclick=async()=>{if(confirm('Delete this reservation?')){await del('reservations',b.dataset.dride);refresh()}});
