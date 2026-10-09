@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#111827">
 <link rel="manifest" href="manifest.webmanifest">
-<title>GigPilot v0.6.1</title>
+<title>GigPilot v0.6.2</title>
 <style>
 :root{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#111827;background:#f8fafc}
 *{box-sizing:border-box}body{margin:0;padding:16px;max-width:900px;margin:auto}
@@ -30,7 +30,7 @@ button.primary{background:#111827;color:#fff;border-color:#111827;width:100%}.ac
 </style>
 </head>
 <body>
-<header><div class="muted">GigPilot · local-first</div><h1>v0.6.1 Reservation Details</h1><div class="muted">Reservations, people, places and settings are stored on this device.</div></header>
+<header><div class="muted">GigPilot · local-first</div><h1>v0.6.2 Two-Way Traffic Report</h1><div class="muted">Reservations, people, places and settings are stored on this device.</div></header>
 
 <nav class="card tabs">
 <button class="tab active" data-tab="reservations">Reservations</button>
@@ -199,19 +199,33 @@ async function transitionCheck(prev,next,token,buffer){
  try{let [a,b]=await Promise.all([geocodeTemp(prev.dropoff,token),geocodeTemp(next.pickup,token)]),route=await trafficRoute(a.coord,b.coord,token),travel=mins(route.duration),verdict=gap<travel?'CONFLICT':gap<travel+buffer?'TIGHT':'SAFE';return {verdict,kind:'TRAFFIC',gap,travel,buffer,prevEnd,prev,next}}
  catch(error){return {verdict:'UNKNOWN',kind:'TRAFFIC NOT CHECKED',gap,prevEnd,prev,next,error:error.message}}
 }
-function guardHtml(x){
- let end=new Date(x.prevEnd).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'}),base=`<p><strong>Previous ride ends:</strong> ${esc(end)} at ${esc(x.prev.dropoffName||x.prev.dropoff)}</p><p><strong>Next pickup:</strong> ${esc(fmtTime(x.next.time))} at ${esc(x.next.pickupName||x.next.pickup)}</p>`;
- if(x.kind==='OVERLAP')return base+`<p style="font-size:20px"><strong>${Math.abs(x.gap)}-minute overlap.</strong></p>`;
- if(x.kind==='TRAFFIC')return base+`<p><strong>Available:</strong> ${x.gap} min · <strong>Current drive:</strong> ${x.travel} min · <strong>Safety buffer:</strong> ${x.buffer} min</p>`+(x.verdict==='CONFLICT'?`<p style="font-size:20px"><strong>Not enough time to reach the next pickup.</strong></p>`:`<p style="font-size:20px"><strong>The drive may fit, but your full safety buffer does not.</strong></p>`);
- return base+`<p style="font-size:20px"><strong>TRAFFIC NOT CHECKED.</strong></p><p>${esc(x.error||'GigPilot does not have enough information to verify this transition.')}</p>`;
+function transitionLabel(x,focusId){
+ const direction=x.next?.id===focusId?'PREVIOUS → CURRENT':'CURRENT → NEXT';
+ return `<strong>${direction}</strong><div class="small muted">${esc(fmtTime(x.prev.time))} ${esc(x.prev.dropoffName||x.prev.dropoff||'Unknown drop-off')} → ${esc(fmtTime(x.next.time))} ${esc(x.next.pickupName||x.next.pickup||'Unknown pickup')}</div>`;
+}
+function transitionReport(x,focusId){
+ let detail=transitionLabel(x,focusId);
+ let end=new Date(x.prevEnd).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'});
+ detail+=`<div class="small">Previous ride ends ${esc(end)} · Next pickup ${esc(fmtTime(x.next.time))}</div>`;
+ if(x.kind==='OVERLAP')return `<div class="item">${detail}<strong>🚨 ${Math.abs(x.gap)} min overlap — CONFLICT</strong></div>`;
+ if(x.kind==='TRAFFIC'){
+  const cushion=x.gap-x.travel-x.buffer;
+  return `<div class="item">${detail}<div><strong>Available:</strong> ${x.gap} min · <strong>Current drive:</strong> ${x.travel} min · <strong>Buffer:</strong> ${x.buffer} min</div><div><strong>${x.verdict==='SAFE'?'✓ SAFE':x.verdict==='TIGHT'?'⚠️ TIGHT':'🚨 CONFLICT'}</strong> · ${cushion>=0?`${cushion} min remaining beyond buffer`:`${Math.abs(cushion)} min short of drive + buffer`}</div></div>`;
+ }
+ return `<div class="item">${detail}<strong>⚪ TRAFFIC NOT CHECKED</strong><div>${esc(x.error||'Address or traffic information unavailable.')}</div></div>`;
+}
+function twoWayReport(checks,focusId){
+ return `<div style="margin-top:10px"><strong>Both neighboring transitions</strong>${checks.map(x=>transitionReport(x,focusId)).join('')}</div>`;
+}
+function guardHtml(x,checks=[x],focusId=''){
+ return `<p><strong>Review the affected transition before saving.</strong></p>${twoWayReport(checks,focusId)}`;
 }
 function showChecking(){document.getElementById('checkingModal')?.classList.remove('hidden')}
 function hideChecking(){document.getElementById('checkingModal')?.classList.add('hidden')}
-function safeResultHtml(checks,buffer){
- let margins=checks.filter(x=>x?.verdict==='SAFE').map(x=>({x,margin:x.gap-x.travel-buffer}));
- let tightest=margins.sort((a,b)=>a.margin-b.margin)[0];
- let detail=tightest?`<div><strong>Available:</strong> ${tightest.x.gap} min · <strong>Current drive:</strong> ${tightest.x.travel} min · <strong>Safety buffer:</strong> ${buffer} min</div><div style="margin-top:6px"><strong>Remaining cushion:</strong> ${Math.max(0,tightest.margin)} min beyond your safety buffer.</div>`:'<div>No adjacent reservation required a travel-time comparison.</div>';
- return `<div class="save-result save-safe"><h3>🟢 SAFE TO ACCEPT</h3><div><strong>Traffic checked.</strong> This reservation fits your schedule.</div><div style="margin-top:8px">${detail}</div></div>`
+function safeResultHtml(checks,buffer,focusId){
+ let margins=checks.filter(x=>x?.verdict==='SAFE').map(x=>x.gap-x.travel-buffer);
+ let smallest=margins.length?Math.min(...margins):null;
+ return `<div class="save-result save-safe"><h3>🟢 SAFE TO ACCEPT</h3><div><strong>Traffic checked for ${checks.length===2?'both transitions':'the adjacent transition'}.</strong> This reservation fits your schedule.</div>${twoWayReport(checks,focusId)}<div style="margin-top:8px"><strong>Smallest remaining cushion:</strong> ${smallest} min beyond your safety buffer.</div></div>`;
 }
 // state declared below
 let reservationSaveInProgress=false;
@@ -238,8 +252,8 @@ $('#rideForm').onsubmit=async e=>{
 let [people,places]=await Promise.all([all('people'),all('places')]);assertActive();setStage('Preparing reservation');let pe=people.find(x=>x.id===ridePerson.value),pu=places.find(x=>x.id===ridePickup.value),dr=places.find(x=>x.id===rideDropoff.value);let pickup=pu?.address||pickupText.value.trim(),dropoff=dr?.address||dropoffText.value.trim();if(!pickup||!dropoff){alert('Choose a saved place or enter text for both pickup and destination.');return}let editingId=rideForm.dataset.editId||'';let original=editingId?await getOne('reservations',editingId):null;assertActive();if(editingId&&!original)throw Error('Original reservation not found. No changes saved.');let newRide={...(original||{}),id:editingId||crypto.randomUUID(),service:service.value,passengerId:pe?.id||'',passengerName:pe?.name||'',date:date.value,time:time.value,durationMin:Number(durationMin.value),pickupPlaceId:pu?.id||'',pickupName:pu?.name||pickupText.value.trim(),pickup,dropoffPlaceId:dr?.id||'',dropoffName:dr?.name||dropoffText.value.trim(),dropoff,notes:notes.value.trim(),createdAt:original?.createdAt||new Date().toISOString()};setStage('Reading existing reservations');let existing=(await all('reservations')).filter(r=>r.id!==newRide.id&&r.date===newRide.date&&r.durationMin).sort((a,b)=>rideStartMs(a)-rideStartMs(b));let ns=rideStartMs(newRide),ne=ns+Number(newRide.durationMin)*60000,conflict=null;for(const r of existing){let rs=rideStartMs(r),re=rs+Number(r.durationMin)*60000;if(ns<re&&ne>rs){conflict={r,rs,re};break}}if(conflict){let overlap=Math.ceil((Math.min(ne,conflict.re)-Math.max(ns,conflict.rs))/60000);assertActive();showGuard(newRide,'🚨 SCHEDULE CONFLICT','DO NOT ACCEPT without reviewing this conflict.',`<p><strong>Existing:</strong> ${esc(fmtTime(conflict.r.time))} for ${esc(conflict.r.durationMin)} min (ends about ${esc(new Date(conflict.re).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'}))})</p><p><strong>New:</strong> ${esc(fmtTime(newRide.time))} for ${esc(newRide.durationMin)} min</p><p style="font-size:20px"><strong>${overlap}-minute overlap.</strong></p>`);return}
  setStage('Reading Mapbox settings');let token=await getMapboxToken(),bufRec=await getOne('settings','safetyBuffer'),buffer=Math.max(0,Number(bufRec?.value??10));let before=existing.filter(r=>rideStartMs(r)<ns).at(-1)||null,after=existing.find(r=>rideStartMs(r)>ns)||null;
  if(!token&&(before||after)){assertActive();showGuard(newRide,'⚪ TRAFFIC NOT CHECKED','GigPilot cannot call this SAFE.',`<p>No Mapbox token is available on this device.</p><p>Save a public token in Routing, or choose <strong>Save Anyway</strong> to override.</p>`);return}
- let checks=[];if(before){setStage('Checking traffic from previous ride');checks.push(await withDeadline(transitionCheck(before,newRide,token,buffer),12000));assertActive()}if(after){setStage('Checking traffic to next ride');checks.push(await withDeadline(transitionCheck(newRide,after,token,buffer),12000));assertActive()}let problem=checks.find(x=>x&&x.verdict==='CONFLICT')||checks.find(x=>x&&x.verdict==='UNKNOWN')||checks.find(x=>x&&x.verdict==='TIGHT');if(problem){let title=problem.verdict==='CONFLICT'?'🚨 SCHEDULE CONFLICT':problem.verdict==='TIGHT'?'⚠️ TIGHT SCHEDULE':'⚪ TRAFFIC NOT CHECKED',reason=problem.verdict==='CONFLICT'?'DO NOT ACCEPT without reviewing this conflict.':problem.verdict==='TIGHT'?'Your full 10-minute safety buffer does not fit.':'GigPilot cannot call this SAFE.';assertActive();showGuard(newRide,title,reason,guardHtml(problem));return}
- assertActive();setStage('Writing reservation to local database');await put('reservations',newRide);saved=true;assertActive();setStage('Refreshing reservation list');resetRideEdit();await refresh();showSaveNotice(checks.length?(editingId?safeResultHtml(checks,buffer).replace('SAFE TO ACCEPT','UPDATE SAVED · SAFE'):safeResultHtml(checks,buffer)):'<div class="notice-title">✓ '+(editingId?'RESERVATION UPDATED':'RESERVATION SAVED')+'</div><div>No adjacent reservation required a traffic transition check.</div>',checks.length?'safe':'neutral',true)
+ let checks=[];if(before){setStage('Checking traffic from previous ride');checks.push(await withDeadline(transitionCheck(before,newRide,token,buffer),12000));assertActive()}if(after){setStage('Checking traffic to next ride');checks.push(await withDeadline(transitionCheck(newRide,after,token,buffer),12000));assertActive()}let problem=checks.find(x=>x&&x.verdict==='CONFLICT')||checks.find(x=>x&&x.verdict==='UNKNOWN')||checks.find(x=>x&&x.verdict==='TIGHT');if(problem){let title=problem.verdict==='CONFLICT'?'🚨 SCHEDULE CONFLICT':problem.verdict==='TIGHT'?'⚠️ TIGHT SCHEDULE':'⚪ TRAFFIC NOT CHECKED',reason=problem.verdict==='CONFLICT'?'DO NOT ACCEPT without reviewing this conflict.':problem.verdict==='TIGHT'?'Your configured safety buffer does not fit.':'GigPilot cannot call this SAFE.';assertActive();showGuard(newRide,title,reason,guardHtml(problem,checks,newRide.id));return}
+ assertActive();setStage('Writing reservation to local database');await put('reservations',newRide);saved=true;assertActive();setStage('Refreshing reservation list');resetRideEdit();await refresh();showSaveNotice(checks.length?(editingId?safeResultHtml(checks,buffer,newRide.id).replace('SAFE TO ACCEPT','UPDATE SAVED · SAFE'):safeResultHtml(checks,buffer,newRide.id)):'<div class="notice-title">✓ '+(editingId?'RESERVATION UPDATED':'RESERVATION SAVED')+'</div><div>No adjacent reservation required a traffic transition check.</div>',checks.length?'safe':'neutral',true)
  }catch(error){
    if(active){showSaveNotice('<div class="notice-title">⚠️ TRAFFIC NOT CHECKED — '+(saved?'SAVE MAY HAVE COMPLETED':'NOT SAVED')+'</div><div>'+esc(error?.message||'Unexpected error during schedule check.')+' (Stage: '+esc(stage)+')</div><div>Check the reservation list before retrying.</div>','warning',false);console.error('GigPilot save check failed',error)}
  }finally{if(active)cleanup()}
