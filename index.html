@@ -31,7 +31,7 @@ button.primary{background:#111827;color:#fff;border-color:#111827;width:100%}.ac
 </style>
 </head>
 <body>
-<header><div class="muted">GigPilot · local-first</div><h1>v0.6.7 Quick Save Starting Location</h1><div class="muted">Reservations, people, places and settings are stored on this device.</div></header>
+<header><div class="muted">GigPilot · local-first</div><h1>v0.6.8 Departure Countdown</h1><div class="muted">Reservations, people, places and settings are stored on this device.</div></header>
 
 <nav class="card tabs">
 <button class="tab active" data-tab="reservations">Reservations</button>
@@ -153,6 +153,26 @@ function fmtTime(t){let[h,m]=t.split(':').map(Number),a=h>=12?'PM':'AM';h=h%12||
 function dl(n,t,type){let a=document.createElement('a');a.href=URL.createObjectURL(new Blob([t],{type}));a.download=n;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},500)}
 let selectedScheduleDay='today';
 let departureChecks={};let departureRequestId=0;
+function countdownText(entry){
+ const now=Date.now(),delta=entry.departAt-now,mins=Math.ceil(Math.abs(delta)/60000),h=Math.floor(mins/60),m=mins%60;
+ const duration=h?`${h} hr${h===1?'':'s'}${m?' '+m+' min':''}`:`${m} min`;
+ if(now>=entry.pickupAt)return 'Pickup time has passed';
+ if(delta<=0)return delta>-60000?'🚨 Time to leave!':`🚨 Leave time passed ${duration} ago`;
+ return `⏳ Leave in ${duration}`;
+}
+function updateDepartureCountdowns(){
+ document.querySelectorAll('[data-depart-countdown]').forEach(el=>{
+  const entry=departureChecks[el.dataset.departCountdown];if(!entry)return;
+  const stale=Boolean(entry.failed)||entry.origin!==($('#departureOrigin')?.value||'').trim();
+  const age=Date.now()-entry.checkedAt;
+  el.textContent=stale?'⚠️ Countdown unverified — refresh traffic':countdownText(entry);
+  el.classList.toggle('departure-warning',stale||Date.now()>=entry.departAt);
+  const note=document.getElementById('depart-age-'+el.dataset.departCountdown);
+  if(note)note.textContent=stale?'Do not rely on the previous estimate.':age>=15*60000?'⚠️ Traffic checked over 15 minutes ago. Refresh before relying on this countdown.':'Based on the last traffic check. Updates while GigPilot is open.';
+ });
+}
+setInterval(updateDepartureCountdowns,1000);
+
 let selectedDeparturePlaceId='';
 function markDepartureOriginChanged(){departureRequestId++;document.querySelectorAll('[data-depart]').forEach(b=>{b.disabled=false;b.textContent='🚗 Check departure time'});document.querySelectorAll('[data-refresh-depart]').forEach(b=>{const el=document.getElementById('depart-result-'+b.dataset.refreshDepart);if(el)el.innerHTML=renderDepartureCheck(b.dataset.refreshDepart)});}
 function hideDepartureSave(){document.getElementById('departureSavePanel').classList.add('hidden')}
@@ -163,7 +183,7 @@ function localDayKey(offset=0){const d=new Date();d.setHours(12,0,0,0);d.setDate
 function renderDepartureCheck(rideId){
  const entry=departureChecks[rideId];if(!entry)return '';
  const stale=entry.failed||entry.origin!==($('#departureOrigin')?.value||'').trim();
- return `<div class="departure-result">${stale?'<div class="departure-warning">⚠️ PREVIOUS RESULT — NOT REFRESHED / NOT VERIFIED</div>':'<div class="small muted">LAST SUCCESSFUL TRAFFIC CHECK</div>'}${entry.html}<div class="departure-actions"><button type="button" data-refresh-depart="${esc(rideId)}">🔄 Refresh traffic</button></div>${entry.failed?`<div class="departure-warning">⚠️ Latest refresh failed: ${esc(entry.failed)}. Do not rely on the previous departure estimate.</div>`:''}${stale&&!entry.failed?'<div class="departure-warning">⚠️ Starting address changed. Refresh before relying on this estimate.</div>':''}</div>`;
+ return `<div class="departure-result">${stale?'<div class="departure-warning">⚠️ PREVIOUS RESULT — NOT REFRESHED / NOT VERIFIED</div>':'<div class="small muted">LAST SUCCESSFUL TRAFFIC CHECK</div>'}${entry.html}<div class="departure-result" style="background:#eff6ff;margin-top:10px" aria-live="off"><strong data-depart-countdown="${esc(rideId)}">${stale?'⚠️ Countdown unverified — refresh traffic':esc(countdownText(entry))}</strong><div class="small muted" id="depart-age-${esc(rideId)}">${stale?'Do not rely on the previous estimate.':'Based on the last traffic check. Updates while GigPilot is open.'}</div></div><div class="departure-actions"><button type="button" data-refresh-depart="${esc(rideId)}">🔄 Refresh traffic</button></div>${entry.failed?`<div class="departure-warning">⚠️ Latest refresh failed: ${esc(entry.failed)}. Do not rely on the previous departure estimate.</div>`:''}${stale&&!entry.failed?'<div class="departure-warning">⚠️ Starting address changed. Refresh before relying on this estimate.</div>':''}</div>`;
 }
 function renderDailySchedule(rides){
  const target=localDayKey(selectedScheduleDay==='tomorrow'?1:0),items=rides.filter(r=>r.date===target).sort((a,b)=>String(a.time).localeCompare(String(b.time)));
@@ -217,8 +237,8 @@ async function refresh(){
    const remaining=Math.floor((departDate-now)/60000);
    const timing=now>=pickupDate?'Pickup time has passed. This is a retrospective calculation.':remaining<0?'The calculated departure time has already passed. Recheck your route and schedule immediately.':remaining<=15?'Departure is within '+remaining+' minutes. Recheck conditions before driving.':'';
    const details=`<div class="small muted">RECOMMENDED DEPARTURE · CURRENT TRAFFIC SNAPSHOT</div><strong>${esc(departLabel)}</strong><div class="small">Drive ${travel} min + safety buffer ${buffer} min = ${total} min before pickup</div><div class="small">From: ${esc(a.label)}</div><div class="small">To: ${esc(d.label)}</div><div class="small muted">Checked ${esc(now.toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}))} · ${esc(miles(route.distance))} miles</div>${timing?`<div class="departure-warning">⚠️ ${esc(timing)}</div>`:''}<div class="departure-warning small">Not a future traffic forecast. Recheck near departure. This is not a guaranteed arrival time.</div>`;
-   departureChecks[rideId]={origin,html:details,failed:null};
-   result.innerHTML=renderDepartureCheck(rideId);
+   departureChecks[rideId]={origin,html:details,failed:null,departAt:departDate.getTime(),pickupAt:pickupDate.getTime(),checkedAt:now.getTime()};
+   result.innerHTML=renderDepartureCheck(rideId);updateDepartureCountdowns();
 
   }catch(err){if(requestId===departureRequestId&&result.isConnected){if(departureChecks[rideId]){departureChecks[rideId].failed=String(err.message||'Route unavailable');result.innerHTML=renderDepartureCheck(rideId);}else result.innerHTML='<div class="departure-result departure-warning">⚪ DEPARTURE NOT VERIFIED — '+esc(err.message||'Route unavailable')+'</div>'}}
   finally{if(requestId===departureRequestId&&b.isConnected){b.disabled=false;b.textContent='🚗 Check departure time'}}
