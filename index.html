@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#111827">
 <link rel="manifest" href="manifest.webmanifest">
-<title>GigPilot v0.6.4</title>
+<title>GigPilot v0.6.10</title>
 <style>
 :root{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#111827;background:#f8fafc}
 *{box-sizing:border-box}body{margin:0;padding:16px;max-width:900px;margin:auto}
@@ -31,7 +31,7 @@ button.primary{background:#111827;color:#fff;border-color:#111827;width:100%}.ac
 </style>
 </head>
 <body>
-<header><div class="muted">GigPilot · local-first</div><h1>v0.6.9 Countdown Reliability</h1><div class="muted">Reservations, people, places and settings are stored on this device.</div></header>
+<header><div class="muted">GigPilot · local-first</div><h1>v0.6.10 Session Recovery</h1><div class="muted">Reservations, people, places and settings are stored on this device.</div></header>
 
 <nav class="card tabs">
 <button class="tab active" data-tab="reservations">Reservations</button>
@@ -153,6 +153,33 @@ function fmtTime(t){let[h,m]=t.split(':').map(Number),a=h>=12?'PM':'AM';h=h%12||
 function dl(n,t,type){let a=document.createElement('a');a.href=URL.createObjectURL(new Blob([t],{type}));a.download=n;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},500)}
 let selectedScheduleDay='today';
 let departureChecks={};let departureRequestId=0;
+// On-device UI recovery only. Never persist Mapbox tokens or alter IndexedDB records.
+const RECOVERY_KEY='gigpilot-departure-recovery-v0610';
+function saveDepartureRecovery(){
+ try{
+  const checks=Object.fromEntries(Object.entries(departureChecks).filter(([id,e])=>e&&Number.isFinite(e.checkedAt)&&Number.isFinite(e.departAt)&&Number.isFinite(e.pickupAt)).map(([id,e])=>[id,{origin:e.origin,html:e.html,failed:e.failed||null,departAt:e.departAt,pickupAt:e.pickupAt,checkedAt:e.checkedAt}]));
+  localStorage.setItem(RECOVERY_KEY,JSON.stringify({day:selectedScheduleDay,placeId:selectedDeparturePlaceId,checks}));
+ }catch(e){/* Storage may be unavailable; reservations remain unaffected. */}
+}
+async function restoreDepartureRecovery(){
+ try{
+  const saved=JSON.parse(localStorage.getItem(RECOVERY_KEY)||'null');if(!saved||typeof saved!=='object')return;
+  selectedScheduleDay=saved.day==='tomorrow'?'tomorrow':'today';
+  if(typeof saved.placeId==='string'&&saved.placeId){
+   const place=await getOne('places',saved.placeId);
+   if(place?.address?.trim()){
+    selectedDeparturePlaceId=place.id;
+    $('#departureOrigin').value=place.address.trim();
+    $('#departurePlaceStatus').textContent='✓ Restored starting location: '+place.name;
+   }
+  }
+  const rides=await all('reservations'),ids=new Set(rides.map(r=>r.id));
+  for(const [id,e] of Object.entries(saved.checks||{})){
+   if(!ids.has(id)||!e||typeof e.origin!=='string'||typeof e.html!=='string'||e.html.length>10000||!Number.isFinite(e.checkedAt)||!Number.isFinite(e.departAt)||!Number.isFinite(e.pickupAt)||e.checkedAt>Date.now()+60000)continue;
+   departureChecks[id]={...e,restored:true};
+  }
+ }catch(e){/* Invalid or blocked recovery data must not prevent app startup. */}
+}
 function countdownText(entry){
  const now=Date.now(),delta=entry.departAt-now,mins=Math.ceil(Math.abs(delta)/60000),h=Math.floor(mins/60),m=mins%60;
  const duration=h?`${h} hr${h===1?'':'s'}${m?' '+m+' min':''}`:`${m} min`;
@@ -163,7 +190,7 @@ function countdownText(entry){
 function departureCheckState(entry){
  const changed=entry.origin!==($('#departureOrigin')?.value||'').trim();
  const aged=Date.now()-entry.checkedAt>=15*60000;
- return {changed,aged,failed:Boolean(entry.failed),unverified:changed||aged||Boolean(entry.failed)};
+ return {changed,aged,restored:Boolean(entry.restored),failed:Boolean(entry.failed),unverified:changed||aged||Boolean(entry.failed)||Boolean(entry.restored)};
 }
 function updateDepartureCountdowns(){
  document.querySelectorAll('[data-depart-countdown]').forEach(el=>{
@@ -171,24 +198,26 @@ function updateDepartureCountdowns(){
   const state=departureCheckState(entry);
   el.textContent=state.unverified?'⚠️ Countdown unverified — refresh traffic':countdownText(entry);
   el.classList.toggle('departure-warning',state.unverified||Date.now()>=entry.departAt);
+  const heading=document.getElementById('depart-heading-'+el.dataset.departCountdown);
+  if(heading)heading.textContent=state.unverified?'⚠️ PREVIOUS RESULT — NOT VERIFIED / REFRESH REQUIRED':'LAST SUCCESSFUL TRAFFIC CHECK';
   const note=document.getElementById('depart-age-'+el.dataset.departCountdown);
-  if(note)note.textContent=state.failed?'Latest traffic refresh failed. Do not rely on the previous estimate.':state.changed?'Starting address changed. Refresh traffic to verify departure.':state.aged?'⚠️ Traffic checked over 15 minutes ago. Refresh before relying on this countdown.':'Based on the last traffic check. Updates while GigPilot is open.';
+  if(note)note.textContent=state.failed?'Latest traffic refresh failed. Do not rely on the previous estimate.':state.changed?'Starting address changed. Refresh traffic to verify departure.':state.aged?'⚠️ Traffic checked over 15 minutes ago. Refresh before relying on this countdown.':state.restored?'⚠️ Restored after reopening. Refresh traffic before relying on this countdown.':'Based on the last traffic check. Updates while GigPilot is open.';
  });
 }
 setInterval(updateDepartureCountdowns,1000);
 
 let selectedDeparturePlaceId='';
-function markDepartureOriginChanged(){departureRequestId++;updateDepartureCountdowns();document.querySelectorAll('[data-depart]').forEach(b=>{b.disabled=false;b.textContent='🚗 Check departure time'});document.querySelectorAll('[data-refresh-depart]').forEach(b=>{const el=document.getElementById('depart-result-'+b.dataset.refreshDepart);if(el)el.innerHTML=renderDepartureCheck(b.dataset.refreshDepart)});}
+function markDepartureOriginChanged(){departureRequestId++;saveDepartureRecovery();updateDepartureCountdowns();document.querySelectorAll('[data-depart]').forEach(b=>{b.disabled=false;b.textContent='🚗 Check departure time'});document.querySelectorAll('[data-refresh-depart]').forEach(b=>{const el=document.getElementById('depart-result-'+b.dataset.refreshDepart);if(el)el.innerHTML=renderDepartureCheck(b.dataset.refreshDepart)});}
 function hideDepartureSave(){document.getElementById('departureSavePanel').classList.add('hidden')}
 function showDepartureSave(name='',address=''){document.getElementById('departureSaveName').value=name;document.getElementById('departureSaveAddress').value=address;document.getElementById('departureSavePanel').classList.remove('hidden');document.getElementById('departureSaveAddress').focus()}
-async function chooseDeparturePlace(id){selectedDeparturePlaceId=id;hideDepartureSave();const status=document.getElementById('departurePlaceStatus');if(id==='__new__'){selectedDeparturePlaceId='';status.textContent='Enter a name and full address to save a new starting location.';showDepartureSave('',document.getElementById('departureOrigin').value.trim());return}if(!id){status.textContent='Manual entry selected. You can type any starting address.';return}const place=await getOne('places',id);if(selectedDeparturePlaceId!==id)return;if(!place){status.textContent='Saved location unavailable. Choose another place.';return}if(place.address?.trim()){document.getElementById('departureOrigin').value=place.address.trim();status.textContent='✓ Starting address filled from '+place.name;markDepartureOriginChanged()}else{document.getElementById('departureOrigin').value='';status.textContent='This location has no address. Add and save one below.';markDepartureOriginChanged();showDepartureSave(place.name||'','')}}
+async function chooseDeparturePlace(id){selectedDeparturePlaceId=id;saveDepartureRecovery();hideDepartureSave();const status=document.getElementById('departurePlaceStatus');if(id==='__new__'){selectedDeparturePlaceId='';status.textContent='Enter a name and full address to save a new starting location.';showDepartureSave('',document.getElementById('departureOrigin').value.trim());return}if(!id){status.textContent='Manual entry selected. You can type any starting address.';saveDepartureRecovery();return}const place=await getOne('places',id);if(selectedDeparturePlaceId!==id)return;if(!place){status.textContent='Saved location unavailable. Choose another place.';return}if(place.address?.trim()){document.getElementById('departureOrigin').value=place.address.trim();status.textContent='✓ Starting address filled from '+place.name;markDepartureOriginChanged()}else{document.getElementById('departureOrigin').value='';status.textContent='This location has no address. Add and save one below.';markDepartureOriginChanged();showDepartureSave(place.name||'','')}}
 
 function localDayKey(offset=0){const d=new Date();d.setHours(12,0,0,0);d.setDate(d.getDate()+offset);return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`}
 function renderDepartureCheck(rideId){
  const entry=departureChecks[rideId];if(!entry)return '';
  const state=departureCheckState(entry),stale=state.unverified;
- const reason=state.failed?'Latest traffic refresh failed. Do not rely on the previous estimate.':state.changed?'Starting address changed. Refresh before relying on this estimate.':state.aged?'Traffic checked over 15 minutes ago. Refresh before relying on this estimate.':'';
- return `<div class="departure-result">${stale?'<div class="departure-warning">⚠️ PREVIOUS RESULT — NOT VERIFIED / REFRESH REQUIRED</div>':'<div class="small muted">LAST SUCCESSFUL TRAFFIC CHECK</div>'}${entry.html}<div class="departure-result" style="background:#eff6ff;margin-top:10px" aria-live="off"><strong data-depart-countdown="${esc(rideId)}">${stale?'⚠️ Countdown unverified — refresh traffic':esc(countdownText(entry))}</strong><div class="small muted" id="depart-age-${esc(rideId)}">${stale?esc(reason):'Based on the last traffic check. Updates while GigPilot is open.'}</div></div><div class="departure-actions"><button type="button" data-refresh-depart="${esc(rideId)}">🔄 Refresh traffic</button></div>${entry.failed?`<div class="departure-warning">⚠️ Latest refresh failed: ${esc(entry.failed)}. Do not rely on the previous departure estimate.</div>`:''}${state.changed&&!entry.failed?'<div class="departure-warning">⚠️ Starting address changed. Refresh before relying on this estimate.</div>':''}</div>`;
+ const reason=state.failed?'Latest traffic refresh failed. Do not rely on the previous estimate.':state.changed?'Starting address changed. Refresh before relying on this estimate.':state.aged?'Traffic checked over 15 minutes ago. Refresh before relying on this estimate.':state.restored?'Restored after reopening. Refresh traffic to verify this estimate.':'';
+ return `<div class="departure-result"><div class="small muted" id="depart-heading-${esc(rideId)}">${stale?'⚠️ PREVIOUS RESULT — NOT VERIFIED / REFRESH REQUIRED':'LAST SUCCESSFUL TRAFFIC CHECK'}</div>${entry.html}<div class="departure-result" style="background:#eff6ff;margin-top:10px" aria-live="off"><strong data-depart-countdown="${esc(rideId)}">${stale?'⚠️ Countdown unverified — refresh traffic':esc(countdownText(entry))}</strong><div class="small muted" id="depart-age-${esc(rideId)}">${stale?esc(reason):'Based on the last traffic check. Updates while GigPilot is open.'}</div></div><div class="departure-actions"><button type="button" data-refresh-depart="${esc(rideId)}">🔄 Refresh traffic</button></div>${entry.failed?`<div class="departure-warning">⚠️ Latest refresh failed: ${esc(entry.failed)}. Do not rely on the previous departure estimate.</div>`:''}${state.changed&&!entry.failed?'<div class="departure-warning">⚠️ Starting address changed. Refresh before relying on this estimate.</div>':''}</div>`;
 }
 function renderDailySchedule(rides){
  const target=localDayKey(selectedScheduleDay==='tomorrow'?1:0),items=rides.filter(r=>r.date===target).sort((a,b)=>String(a.time).localeCompare(String(b.time)));
@@ -198,13 +227,14 @@ function renderDailySchedule(rides){
  let overlap=new Set();for(let i=1;i<items.length;i++){const a=items[i-1],b=items[i];if(Number(a.durationMin)>0&&rideStartMs(b)<rideStartMs(a)+Number(a.durationMin)*60000)overlap.add(a.id),overlap.add(b.id)}
  $('#dailyRides').innerHTML=items.length?items.map(r=>`<div class="daily-entry">${overlap.has(r.id)?'<div class="conflict-card"><strong>🚨 TIME OVERLAP — review schedule</strong></div>':''}<button type="button" class="ride-view" data-vride="${esc(r.id)}" aria-label="View ${esc(fmtTime(r.time))} reservation details"><div class="daily-time">${esc(fmtTime(r.time))} <span class="badge">${esc(r.service||'Other')}</span></div><strong>${esc(r.passengerName||r.passenger||'Reservation')}</strong><div class="muted small">${esc(r.pickupName||r.pickup||'Pickup not specified')} → ${esc(r.dropoffName||r.dropoff||'Destination not specified')}</div><div class="small">${esc(r.durationMin||'?')} min estimated${r.notes?' · 📝 Notes available':''}</div><span class="small" style="color:#2563eb">View details →</span></button><div class="departure-actions"><button type="button" data-depart="${esc(r.id)}">🚗 Check departure time</button></div><div id="depart-result-${esc(r.id)}" aria-live="polite">${renderDepartureCheck(r.id)}</div></div>`).join(''):'<p class="muted">No reservations scheduled for this day.</p>';
 }
-$('#showToday').onclick=()=>{selectedScheduleDay='today';departureRequestId++;refresh()};
-$('#showTomorrow').onclick=()=>{selectedScheduleDay='tomorrow';departureRequestId++;refresh()};
-document.addEventListener('visibilitychange',()=>{if(!document.hidden){refresh();updateDepartureCountdowns()}});
+$('#showToday').onclick=()=>{selectedScheduleDay='today';departureRequestId++;saveDepartureRecovery();refresh()};
+$('#showTomorrow').onclick=()=>{selectedScheduleDay='tomorrow';departureRequestId++;saveDepartureRecovery();refresh()};
+document.addEventListener('visibilitychange',()=>{if(!document.hidden){refresh().then(updateDepartureCountdowns).catch(()=>{});}});
+window.addEventListener('pageshow',()=>{updateDepartureCountdowns()});
 document.addEventListener('click',e=>{const b=e.target.closest('[data-refresh-depart]');if(!b)return;const original=[...document.querySelectorAll('[data-depart]')].find(x=>x.dataset.depart===b.dataset.refreshDepart);if(original&&!original.disabled)original.click()});
 $('#departureOrigin').addEventListener('input',()=>{const sel=document.getElementById('departurePlace');if(sel.value){sel.value='';selectedDeparturePlaceId='';document.getElementById('departurePlaceStatus').textContent='Manual address entered. Saved location selection cleared.';hideDepartureSave()}markDepartureOriginChanged()});
 $('#departurePlace').addEventListener('change',e=>chooseDeparturePlace(e.target.value));
-$('#departureCancelSave').onclick=()=>{hideDepartureSave();document.getElementById('departurePlace').value='';selectedDeparturePlaceId='';document.getElementById('departurePlaceStatus').textContent='Address entry canceled. No saved place was changed.'};
+$('#departureCancelSave').onclick=()=>{hideDepartureSave();document.getElementById('departurePlace').value='';selectedDeparturePlaceId='';document.getElementById('departurePlaceStatus').textContent='Address entry canceled. No saved place was changed.';saveDepartureRecovery()};
 $('#departureSavePlace').onclick=async()=>{const name=document.getElementById('departureSaveName').value.trim(),address=document.getElementById('departureSaveAddress').value.trim(),status=document.getElementById('departurePlaceStatus');if(!name||!address){status.textContent='⚠️ Enter both a location name and street address.';return}const id=selectedDeparturePlaceId;const original=id?await getOne('places',id):null;if(original?.address?.trim()&&original.address.trim()!==address&&!confirm('Replace the existing saved address for '+original.name+'?'))return;const places=await all('places');if(!original&&places.some(p=>p.name.trim().toLowerCase()===name.toLowerCase())){status.textContent='⚠️ A saved place with that name already exists. Select it instead.';return}const record=original?{...original,name,address}:{id:crypto.randomUUID(),name,alias:'',address,notes:''};try{await put('places',record);selectedDeparturePlaceId=record.id;document.getElementById('departureOrigin').value=address;hideDepartureSave();markDepartureOriginChanged();await refresh();document.getElementById('departurePlace').value=record.id;status.textContent='✓ '+name+' saved to Places and selected as starting location.'}catch(err){status.textContent='⚠️ Could not save location: '+err.message}};
 
 async function refresh(){
@@ -224,9 +254,9 @@ async function refresh(){
  document.querySelectorAll('[data-depart]').forEach(b=>b.onclick=async()=>{
   const requestId=++departureRequestId,rideId=b.dataset.depart,ride=rides.find(x=>x.id===rideId),result=document.getElementById('depart-result-'+rideId),origin=$('#departureOrigin').value.trim();
   if(!ride||!result)return;
-  if(!origin){if(departureChecks[rideId]){departureChecks[rideId].failed='Starting address missing';result.innerHTML=renderDepartureCheck(rideId);updateDepartureCountdowns()}else result.innerHTML='<div class="departure-result departure-warning">Enter your starting address above before checking a departure time.</div>';$('#departureOrigin').focus();return}
+  if(!origin){if(departureChecks[rideId]){departureChecks[rideId].failed='Starting address missing';saveDepartureRecovery();result.innerHTML=renderDepartureCheck(rideId);updateDepartureCountdowns()}else result.innerHTML='<div class="departure-result departure-warning">Enter your starting address above before checking a departure time.</div>';$('#departureOrigin').focus();return}
   const destination=ride.pickup||ride.pickupName||'';
-  if(!destination){if(departureChecks[rideId]){departureChecks[rideId].failed='Pickup address missing';result.innerHTML=renderDepartureCheck(rideId);updateDepartureCountdowns()}else result.innerHTML='<div class="departure-result departure-warning">This reservation has no pickup address. Add a pickup address before routing.</div>';return}
+  if(!destination){if(departureChecks[rideId]){departureChecks[rideId].failed='Pickup address missing';saveDepartureRecovery();result.innerHTML=renderDepartureCheck(rideId);updateDepartureCountdowns()}else result.innerHTML='<div class="departure-result departure-warning">This reservation has no pickup address. Add a pickup address before routing.</div>';return}
   b.disabled=true;b.textContent='Refreshing traffic…';result.innerHTML='<div class="departure-result">🔄 Requesting a new Mapbox traffic estimate…</div>'+renderDepartureCheck(rideId);
   try{
    const token=await getMapboxToken();if(!token)throw Error('No Mapbox token configured. Add your token in Routing first.');
@@ -242,15 +272,15 @@ async function refresh(){
    const remaining=Math.floor((departDate-now)/60000);
    const timing=now>=pickupDate?'Pickup time has passed. This is a retrospective calculation.':remaining<0?'The calculated departure time has already passed. Recheck your route and schedule immediately.':remaining<=15?'Departure is within '+remaining+' minutes. Recheck conditions before driving.':'';
    const details=`<div class="small muted">RECOMMENDED DEPARTURE · CURRENT TRAFFIC SNAPSHOT</div><strong>${esc(departLabel)}</strong><div class="small">Drive ${travel} min + safety buffer ${buffer} min = ${total} min before pickup</div><div class="small">From: ${esc(a.label)}</div><div class="small">To: ${esc(d.label)}</div><div class="small muted">Checked ${esc(now.toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}))} · ${esc(miles(route.distance))} miles</div>${timing?`<div class="departure-warning">⚠️ ${esc(timing)}</div>`:''}<div class="departure-warning small">Not a future traffic forecast. Recheck near departure. This is not a guaranteed arrival time.</div>`;
-   departureChecks[rideId]={origin,html:details,failed:null,departAt:departDate.getTime(),pickupAt:pickupDate.getTime(),checkedAt:now.getTime()};
+   departureChecks[rideId]={origin,html:details,failed:null,restored:false,departAt:departDate.getTime(),pickupAt:pickupDate.getTime(),checkedAt:now.getTime()};saveDepartureRecovery();
    result.innerHTML=renderDepartureCheck(rideId);updateDepartureCountdowns();
 
-  }catch(err){if(requestId===departureRequestId&&result.isConnected){if(departureChecks[rideId]){departureChecks[rideId].failed=String(err.message||'Route unavailable');result.innerHTML=renderDepartureCheck(rideId);updateDepartureCountdowns();}else result.innerHTML='<div class="departure-result departure-warning">⚪ DEPARTURE NOT VERIFIED — '+esc(err.message||'Route unavailable')+'</div>'}}
+  }catch(err){if(requestId===departureRequestId&&result.isConnected){if(departureChecks[rideId]){departureChecks[rideId].failed=String(err.message||'Route unavailable');saveDepartureRecovery();result.innerHTML=renderDepartureCheck(rideId);updateDepartureCountdowns();}else result.innerHTML='<div class="departure-result departure-warning">⚪ DEPARTURE NOT VERIFIED — '+esc(err.message||'Route unavailable')+'</div>'}}
   finally{if(requestId===departureRequestId&&b.isConnected){b.disabled=false;b.textContent='🚗 Check departure time'}}
  });
  document.querySelectorAll('[data-vride]').forEach(b=>b.onclick=async()=>{const r=await getOne('reservations',b.dataset.vride);if(!r)return;const rows=[['Type',r.service],['Passenger',r.passengerName||r.passenger||'Not specified'],['Date',r.date?fmtDate(r.date):'Not specified'],['Pickup time',r.time?fmtTime(r.time):'Not specified'],['Estimated duration',r.durationMin?`${r.durationMin} minutes`:'Not specified'],['Pickup',r.pickupName||r.pickup||'Not specified'],['Destination',r.dropoffName||r.dropoff||'Not specified']];detailsContent.innerHTML=rows.map(([label,value])=>`<div class="detail-row"><span class="detail-label">${esc(label)}</span><div class="detail-value">${esc(value)}</div></div>`).join('')+`<div class="detail-notes"><span class="detail-label">📝 Notes / passenger instructions</span><div class="detail-value">${esc(r.notes||'No notes added.')}</div></div>`;detailsModal.dataset.rideId=r.id;detailsModal.classList.remove('hidden');detailsCloseBtn.focus();});
  document.querySelectorAll('[data-eride]').forEach(b=>b.onclick=async()=>{if(reservationSaveInProgress)return;let r=await getOne('reservations',b.dataset.eride);if(!r)return;dismissSaveNotice();rideForm.dataset.editId=r.id;service.value=r.service||'Other';ridePerson.value=r.passengerId||'';date.value=r.date||'';time.value=r.time||'';durationMin.value=r.durationMin||'';ridePickup.value=r.pickupPlaceId||'';rideDropoff.value=r.dropoffPlaceId||'';pickupText.value=r.pickupPlaceId?'':(r.pickup||r.pickupName||'');dropoffText.value=r.dropoffPlaceId?'':(r.dropoff||r.dropoffName||'');notes.value=r.notes||'';rideFormTitle.textContent='Edit reservation';rideForm.querySelector('button[type=submit]').textContent='Update reservation';cancelRideEdit.classList.remove('hidden');rideForm.scrollIntoView({behavior:'smooth',block:'start'});});
- document.querySelectorAll('[data-dride]').forEach(b=>b.onclick=async()=>{if(confirm('Delete this reservation?')){await del('reservations',b.dataset.dride);refresh()}});
+ document.querySelectorAll('[data-dride]').forEach(b=>b.onclick=async()=>{if(confirm('Delete this reservation?')){await del('reservations',b.dataset.dride);delete departureChecks[b.dataset.dride];saveDepartureRecovery();refresh()}});
  document.querySelectorAll('[data-dperson]').forEach(b=>b.onclick=async()=>{if(confirm('Delete this person? Existing reservations will remain.')){await del('people',b.dataset.dperson);refresh()}});
  document.querySelectorAll('[data-dplace]').forEach(b=>b.onclick=async()=>{if(confirm('Delete this place? Existing reservations will keep their saved text.')){await del('places',b.dataset.dplace);refresh()}});
 }
@@ -423,6 +453,6 @@ $('#backupBtn').onclick=async()=>{let payload={format:'GigPilot Backup',version:
 $('#csvBtn').onclick=async()=>{let rows=await all('reservations'),cols=['service','passengerName','date','time','pickupName','pickup','dropoffName','dropoff','notes'],q=v=>'"'+String(v??'').replaceAll('"','""')+'"';dl(`GigPilot_Reservations_${new Date().toISOString().slice(0,10)}.csv`,[cols.join(','),...rows.map(r=>cols.map(c=>q(r[c])).join(','))].join('\n'),'text/csv');backupStatus.textContent='✓ CSV exported.'};
 $('#restoreBtn').onclick=()=>restoreFile.click();
 $('#restoreFile').onchange=async e=>{let f=e.target.files[0];if(!f)return;try{let d=JSON.parse(await f.text());if(d.format!=='GigPilot Backup'||!Array.isArray(d.reservations))throw Error('Not a valid GigPilot backup');let summary=`${d.reservations.length} reservation(s), ${(d.people||[]).length} people, ${(d.places||[]).length} places`;if(!confirm(`Restore ${summary}? This replaces current GigPilot data.`))return;for(const s of stores)await clear(s);for(const r of d.reservations)await put('reservations',r);for(const p of d.people||[])await put('people',p);for(const p of d.places||[])await put('places',p);for(const s of d.settings||[])await put('settings',s);backupStatus.textContent='✓ GigPilot backup restored.';await refresh()}catch(x){alert('Restore failed: '+x.message)}finally{e.target.value=''}};
-(async()=>{await openDB();await refresh();await showTokenStatus();await loadBuffer();if('serviceWorker'in navigator)navigator.serviceWorker.register('./sw.js').catch(()=>{})})();
+(async()=>{await openDB();await restoreDepartureRecovery();await refresh();updateDepartureCountdowns();await showTokenStatus();await loadBuffer();if('serviceWorker'in navigator)navigator.serviceWorker.register('./sw.js').catch(()=>{})})();
 </script>
 </body></html>
