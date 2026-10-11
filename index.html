@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#111827">
 <link rel="manifest" href="manifest.webmanifest">
-<title>GigPilot v0.7.0</title>
+<title>GigPilot v0.7.2</title>
 <style>
 :root{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#111827;background:#f8fafc}
 *{box-sizing:border-box}body{margin:0;padding:16px;max-width:900px;margin:auto}
@@ -31,7 +31,7 @@ button.primary{background:#111827;color:#fff;border-color:#111827;width:100%}.ac
 </style>
 </head>
 <body>
-<header><div class="muted">GigPilot · local-first</div><h1>v0.7.1 Reservation History Fix</h1><div class="muted">Reservations, people, places and settings are stored on this device.</div></header>
+<header><div class="muted">GigPilot · local-first</div><h1>v0.7.2 History Search & Filters</h1><div class="muted">Reservations, people, places and settings are stored on this device.</div></header>
 
 <nav class="card tabs">
 <button class="tab active" data-tab="reservations">Reservations</button>
@@ -59,7 +59,12 @@ button.primary{background:#111827;color:#fff;border-color:#111827;width:100%}.ac
 <button type="submit" class="primary" style="margin-top:12px">Save reservation</button> <button type="button" id="cancelRideEdit" class="hidden" style="margin-top:12px">Cancel editing</button></form><div id="rideMsg" class="muted small" style="margin-top:8px"></div></div>
 <div class="card"><div class="actions" style="justify-content:space-between"><h2 style="margin:0">Reservations</h2><span id="rideCount" class="badge">0</span></div>
 <div class="actions" style="margin:12px 0;gap:8px"><button type="button" id="showUpcomingRides" class="primary" aria-pressed="true">Upcoming <span id="upcomingCount">0</span></button><button type="button" id="showHistoryRides" aria-pressed="false">History <span id="historyCount">0</span></button></div>
-<label id="historySearchLabel" class="hidden" style="margin-bottom:10px">Search history<input id="historySearch" type="search" placeholder="Passenger, address, date, notes…" autocomplete="off"></label>
+<div id="historyFilters" class="hidden" style="margin:12px 0">
+<label style="margin-bottom:10px">Search history<input id="historySearch" type="search" placeholder="Passenger, address, date, notes…" autocomplete="off"></label>
+<div class="grid" style="margin-bottom:10px"><label>From date<input id="historyFrom" type="date"></label><label>Through date<input id="historyTo" type="date"></label></div>
+<label style="margin-bottom:10px">Ride type<select id="historyService"><option value="">All ride types</option></select></label>
+<div class="actions"><button type="button" id="historyClear">Clear filters</button><span class="small muted" id="historyMatches" role="status" aria-live="polite"></span></div>
+</div>
 <p id="historyDescription" class="small muted">Reservations move into History after their estimated ride duration ends, or after pickup time if no duration is specified. No records are deleted.</p><div id="rideList"></div></div>
 <div class="card"><h2>Schedule decision engine</h2>
 <p class="muted">Automatic checks now run when you save a reservation. This section remains available for reviewing the full schedule. GigPilot compares adjacent rides using estimated finish time, current Mapbox traffic, and your safety buffer.</p>
@@ -239,6 +244,10 @@ function renderDailySchedule(rides){
 $('#showUpcomingRides').onclick=()=>{reservationListMode='upcoming';refresh()};
 $('#showHistoryRides').onclick=()=>{reservationListMode='history';refresh()};
 $('#historySearch').addEventListener('input',()=>refresh());
+$('#historyFrom').addEventListener('change',()=>refresh());
+$('#historyTo').addEventListener('change',()=>refresh());
+$('#historyService').addEventListener('change',()=>refresh());
+$('#historyClear').addEventListener('click',()=>{$('#historySearch').value='';$('#historyFrom').value='';$('#historyTo').value='';$('#historyService').value='';refresh()});
 setInterval(()=>{if(!document.hidden)refresh().catch(()=>{})},60000);
 $('#showToday').onclick=()=>{selectedScheduleDay='today';departureRequestId++;saveDepartureRecovery();refresh()};
 $('#showTomorrow').onclick=()=>{selectedScheduleDay='tomorrow';departureRequestId++;saveDepartureRecovery();refresh()};
@@ -259,9 +268,15 @@ async function refresh(){
  $('#upcomingCount').textContent=upcoming.length;$('#historyCount').textContent=history.length;
  $('#showUpcomingRides').classList.toggle('primary',reservationListMode==='upcoming');$('#showHistoryRides').classList.toggle('primary',reservationListMode==='history');
  $('#showUpcomingRides').setAttribute('aria-pressed',String(reservationListMode==='upcoming'));$('#showHistoryRides').setAttribute('aria-pressed',String(reservationListMode==='history'));
- $('#historySearchLabel').classList.toggle('hidden',reservationListMode!=='history');
- const q=$('#historySearch').value.trim().toLowerCase();
- const visible=reservationListMode==='history'?history.filter(r=>reservationMatchesSearch(r,q)).reverse():upcoming;
+ $('#historyFilters').classList.toggle('hidden',reservationListMode!=='history');
+ const serviceSelect=$('#historyService'),chosenService=serviceSelect.value;
+ const services=[...new Set(history.map(r=>String(r.service||'').trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
+ serviceSelect.innerHTML='<option value="">All ride types</option>'+services.map(v=>`<option value="${esc(v)}">${esc(v)}</option>`).join('');
+ serviceSelect.value=services.includes(chosenService)?chosenService:'';
+ const q=$('#historySearch').value.trim().toLowerCase(),from=$('#historyFrom').value,to=$('#historyTo').value,service=serviceSelect.value;
+ const filteredHistory=history.filter(r=>reservationMatchesSearch(r,q)&&(!from||r.date>=from)&&(!to||r.date<=to)&&(!service||r.service===service));
+ $('#historyMatches').textContent=`Showing ${filteredHistory.length} of ${history.length} history reservations`;
+ const visible=reservationListMode==='history'?filteredHistory.reverse():upcoming;
  let overlapIds=new Set();for(let i=1;i<rides.length;i++){let a=rides[i-1],b=rides[i];if(a.date===b.date&&a.durationMin&&rideStartMs(b)<rideStartMs(a)+Number(a.durationMin)*60000)overlapIds.add(b.id)}
  $('#rideList').innerHTML=visible.length?visible.map(r=>`<div class="item">${overlapIds.has(r.id)?'<div class="conflict-card"><div class="conflict-title">🚨 CONFLICT · OVERLAP</div><strong>DO NOT ACCEPT</strong> — this reservation starts before the previous reservation is expected to end.</div>':''}<button type="button" class="ride-view" data-vride="${esc(r.id)}" aria-label="View reservation details"><span class="badge">${esc(r.service)}</span> <strong>${esc(r.passengerName||r.passenger||'Reservation')}</strong><div>${fmtDate(r.date)} · ${fmtTime(r.time)}${r.durationMin?` · ${esc(r.durationMin)} min est.`:''}</div><div class="muted">${esc(r.pickupName||r.pickup)} → ${esc(r.dropoffName||r.dropoff)}</div><span class="small" style="color:#2563eb">View details →</span></button><button data-eride="${esc(r.id)}" style="margin-top:7px">Edit</button> <button data-dride="${esc(r.id)}" style="margin-top:7px">Delete</button></div>`).join(''):'<p class="muted">No reservations yet.</p>';
  $('#personList').innerHTML=people.length?people.map(p=>`<div class="item"><strong>${esc(p.name)}</strong>${p.nickname?` <span class="badge">${esc(p.nickname)}</span>`:''}<div class="muted">${esc(p.defaultPlaceName||'No default pickup')}</div><button data-eperson="${p.id}" style="margin-top:7px">Edit</button> <button data-dperson="${p.id}" style="margin-top:7px">Delete</button></div>`).join(''):'<p class="muted">No saved people yet.</p>';
