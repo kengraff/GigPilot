@@ -31,7 +31,7 @@ button.primary{background:#111827;color:#fff;border-color:#111827;width:100%}.ac
 </style>
 </head>
 <body>
-<header><div class="muted">GigPilot · local-first</div><h1>v0.7.0 Reservation History</h1><div class="muted">Reservations, people, places and settings are stored on this device.</div></header>
+<header><div class="muted">GigPilot · local-first</div><h1>v0.7.1 Reservation History Fix</h1><div class="muted">Reservations, people, places and settings are stored on this device.</div></header>
 
 <nav class="card tabs">
 <button class="tab active" data-tab="reservations">Reservations</button>
@@ -60,7 +60,7 @@ button.primary{background:#111827;color:#fff;border-color:#111827;width:100%}.ac
 <div class="card"><div class="actions" style="justify-content:space-between"><h2 style="margin:0">Reservations</h2><span id="rideCount" class="badge">0</span></div>
 <div class="actions" style="margin:12px 0;gap:8px"><button type="button" id="showUpcomingRides" class="primary" aria-pressed="true">Upcoming <span id="upcomingCount">0</span></button><button type="button" id="showHistoryRides" aria-pressed="false">History <span id="historyCount">0</span></button></div>
 <label id="historySearchLabel" class="hidden" style="margin-bottom:10px">Search history<input id="historySearch" type="search" placeholder="Passenger, address, date, notes…" autocomplete="off"></label>
-<p id="historyDescription" class="small muted">Reservations move into History after their estimated ride duration ends. No records are deleted.</p><div id="rideList"></div></div>
+<p id="historyDescription" class="small muted">Reservations move into History after their estimated ride duration ends, or after pickup time if no duration is specified. No records are deleted.</p><div id="rideList"></div></div>
 <div class="card"><h2>Schedule decision engine</h2>
 <p class="muted">Automatic checks now run when you save a reservation. This section remains available for reviewing the full schedule. GigPilot compares adjacent rides using estimated finish time, current Mapbox traffic, and your safety buffer.</p>
 <div class="grid"><label>Safety buffer (minutes)<input id="safetyBuffer" type="number" min="0" step="1" value="10"></label><div><button id="saveBufferBtn" type="button" style="margin-top:17px">Save buffer</button></div></div>
@@ -157,7 +157,7 @@ function dl(n,t,type){let a=document.createElement('a');a.href=URL.createObjectU
 let selectedScheduleDay='today';
 let reservationListMode='upcoming';
 function reservationIsHistory(r,now=Date.now()){
- try{const start=rideStartMs(r),duration=Number(r.durationMin);return Number.isFinite(start)&&Number.isFinite(duration)&&duration>0&&start+duration*60000<=now}catch(e){return false}
+ try{const start=rideStartMs(r),duration=Number(r.durationMin);return Number.isFinite(start)&&start+(Number.isFinite(duration)&&duration>0?duration*60000:0)<=now}catch(e){return false}
 }
 function reservationMatchesSearch(r,q){return [r.service,r.passengerName,r.passenger,r.date,r.time,r.pickupName,r.pickup,r.dropoffName,r.dropoff,r.notes].some(v=>String(v||'').toLowerCase().includes(q))}
 
