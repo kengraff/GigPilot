@@ -31,7 +31,7 @@ button.primary{background:#111827;color:#fff;border-color:#111827;width:100%}.ac
 </style>
 </head>
 <body>
-<header><div class="muted">GigPilot · local-first</div><h1>v0.7.5 Status-Aware Scheduling</h1><div class="muted">Reservations, people, places and settings are stored on this device.</div></header>
+<header><div class="muted">GigPilot · local-first</div><h1>v0.7.6 Reservation Status Filters</h1><div class="muted">Reservations, people, places and settings are stored on this device.</div></header>
 
 <nav class="card tabs">
 <button class="tab active" data-tab="reservations">Reservations</button>
@@ -59,10 +59,10 @@ button.primary{background:#111827;color:#fff;border-color:#111827;width:100%}.ac
 <button type="submit" class="primary" style="margin-top:12px">Save reservation</button> <button type="button" id="cancelRideEdit" class="hidden" style="margin-top:12px">Cancel editing</button></form><div id="rideMsg" class="muted small" style="margin-top:8px"></div></div>
 <div class="card"><div class="actions" style="justify-content:space-between"><h2 style="margin:0">Reservations</h2><span id="rideCount" class="badge">0</span></div>
 <div class="actions" style="margin:12px 0;gap:8px"><button type="button" id="showUpcomingRides" class="primary" aria-pressed="true">Upcoming <span id="upcomingCount">0</span></button><button type="button" id="showHistoryRides" aria-pressed="false">History <span id="historyCount">0</span></button></div>
-<div id="historyFilters" class="hidden" style="margin:12px 0">
+<div id="upcomingFilters" style="margin:12px 0"><label>Ride status<select id="upcomingStatus"><option value="">All statuses</option><option>Scheduled</option><option>Completed</option><option>Canceled</option><option>No-show</option></select></label><div class="actions" style="margin-top:8px"><button type="button" id="upcomingClear">Clear filter</button><span class="small muted" id="upcomingMatches" role="status" aria-live="polite"></span></div></div><div id="historyFilters" class="hidden" style="margin:12px 0">
 <label style="margin-bottom:10px">Search history<input id="historySearch" type="search" placeholder="Passenger, address, date, notes…" autocomplete="off"></label>
 <div class="grid" style="margin-bottom:10px"><label>From date<input id="historyFrom" type="date"></label><label>Through date<input id="historyTo" type="date"></label></div>
-<label style="margin-bottom:10px">Ride type<select id="historyService"><option value="">All ride types</option></select></label>
+<label style="margin-bottom:10px">Ride type<select id="historyService"><option value="">All ride types</option></select></label><label style="margin-bottom:10px">Ride status<select id="historyStatus"><option value="">All statuses</option><option>Scheduled</option><option>Completed</option><option>Canceled</option><option>No-show</option></select></label>
 <div class="actions"><button type="button" id="historyClear">Clear filters</button><span class="small muted" id="historyMatches" role="status" aria-live="polite"></span></div>
 </div>
 <p id="historyDescription" class="small muted">Reservations move into History after their estimated ride duration ends, or after pickup time if no duration is specified. Ride status is set manually and does not change this date-based grouping. No records are deleted.</p><div id="rideList"></div></div>
@@ -250,7 +250,10 @@ $('#historySearch').addEventListener('input',()=>refresh());
 $('#historyFrom').addEventListener('change',()=>refresh());
 $('#historyTo').addEventListener('change',()=>refresh());
 $('#historyService').addEventListener('change',()=>refresh());
-$('#historyClear').addEventListener('click',()=>{$('#historySearch').value='';$('#historyFrom').value='';$('#historyTo').value='';$('#historyService').value='';refresh()});
+$('#historyStatus').addEventListener('change',()=>refresh());
+$('#upcomingStatus').addEventListener('change',()=>refresh());
+$('#upcomingClear').addEventListener('click',()=>{$('#upcomingStatus').value='';refresh()});
+$('#historyClear').addEventListener('click',()=>{$('#historySearch').value='';$('#historyFrom').value='';$('#historyTo').value='';$('#historyService').value='';$('#historyStatus').value='';refresh()});
 setInterval(()=>{if(!document.hidden)refresh().catch(()=>{})},60000);
 $('#showToday').onclick=()=>{selectedScheduleDay='today';departureRequestId++;saveDepartureRecovery();refresh()};
 $('#showTomorrow').onclick=()=>{selectedScheduleDay='tomorrow';departureRequestId++;saveDepartureRecovery();refresh()};
@@ -272,16 +275,20 @@ async function refresh(){
  $('#showUpcomingRides').classList.toggle('primary',reservationListMode==='upcoming');$('#showHistoryRides').classList.toggle('primary',reservationListMode==='history');
  $('#showUpcomingRides').setAttribute('aria-pressed',String(reservationListMode==='upcoming'));$('#showHistoryRides').setAttribute('aria-pressed',String(reservationListMode==='history'));
  $('#historyFilters').classList.toggle('hidden',reservationListMode!=='history');
+ $('#upcomingFilters').classList.toggle('hidden',reservationListMode!=='upcoming');
  const serviceSelect=$('#historyService'),chosenService=serviceSelect.value;
  const services=[...new Set(history.map(r=>String(r.service||'').trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
  serviceSelect.innerHTML='<option value="">All ride types</option>'+services.map(v=>`<option value="${esc(v)}">${esc(v)}</option>`).join('');
  serviceSelect.value=services.includes(chosenService)?chosenService:'';
  const q=$('#historySearch').value.trim().toLowerCase(),from=$('#historyFrom').value,to=$('#historyTo').value,service=serviceSelect.value;
- const filteredHistory=history.filter(r=>reservationMatchesSearch(r,q)&&(!from||r.date>=from)&&(!to||r.date<=to)&&(!service||r.service===service));
+ const historyStatus=$('#historyStatus').value,upcomingStatus=$('#upcomingStatus').value;
+ const filteredHistory=history.filter(r=>reservationMatchesSearch(r,q)&&(!from||r.date>=from)&&(!to||r.date<=to)&&(!service||r.service===service)&&(!historyStatus||rideStatus(r)===historyStatus));
+ const filteredUpcoming=upcoming.filter(r=>!upcomingStatus||rideStatus(r)===upcomingStatus);
+ $('#upcomingMatches').textContent=`Showing ${filteredUpcoming.length} of ${upcoming.length} upcoming reservations`;
  $('#historyMatches').textContent=`Showing ${filteredHistory.length} of ${history.length} history reservations`;
- const visible=reservationListMode==='history'?filteredHistory.reverse():upcoming;
+ const visible=reservationListMode==='history'?filteredHistory.reverse():filteredUpcoming;
  let overlapIds=new Set(),activeRides=rides.filter(activeForScheduling);for(let i=1;i<activeRides.length;i++){let a=activeRides[i-1],b=activeRides[i];if(a.date===b.date&&a.durationMin&&rideStartMs(b)<rideStartMs(a)+Number(a.durationMin)*60000)overlapIds.add(b.id)}
- $('#rideList').innerHTML=visible.length?visible.map(r=>`<div class="item">${overlapIds.has(r.id)?'<div class="conflict-card"><div class="conflict-title">🚨 CONFLICT · OVERLAP</div><strong>DO NOT ACCEPT</strong> — this reservation starts before the previous reservation is expected to end.</div>':''}<button type="button" class="ride-view" data-vride="${esc(r.id)}" aria-label="View reservation details"><span class="badge">${esc(r.service)}</span> <span class="badge">${esc(rideStatus(r))}</span> <strong>${esc(r.passengerName||r.passenger||'Reservation')}</strong><div>${fmtDate(r.date)} · ${fmtTime(r.time)}${r.durationMin?` · ${esc(r.durationMin)} min est.`:''}</div><div class="muted">${esc(r.pickupName||r.pickup)} → ${esc(r.dropoffName||r.dropoff)}</div><span class="small" style="color:#2563eb">View details →</span></button><label class="small" style="display:block;margin-top:8px">Ride status <select data-statusride="${esc(r.id)}" aria-label="Ride status for ${esc(r.passengerName||r.passenger||'reservation')}">${RIDE_STATUSES.map(st=>`<option value="${st}" ${rideStatus(r)===st?'selected':''}>${st}</option>`).join('')}</select></label><button data-eride="${esc(r.id)}" style="margin-top:7px">Edit</button> <button data-dride="${esc(r.id)}" style="margin-top:7px">Delete</button></div>`).join(''):'<p class="muted">No reservations yet.</p>';
+ $('#rideList').innerHTML=visible.length?visible.map(r=>`<div class="item">${overlapIds.has(r.id)?'<div class="conflict-card"><div class="conflict-title">🚨 CONFLICT · OVERLAP</div><strong>DO NOT ACCEPT</strong> — this reservation starts before the previous reservation is expected to end.</div>':''}<button type="button" class="ride-view" data-vride="${esc(r.id)}" aria-label="View reservation details"><span class="badge">${esc(r.service)}</span> <span class="badge">${esc(rideStatus(r))}</span> <strong>${esc(r.passengerName||r.passenger||'Reservation')}</strong><div>${fmtDate(r.date)} · ${fmtTime(r.time)}${r.durationMin?` · ${esc(r.durationMin)} min est.`:''}</div><div class="muted">${esc(r.pickupName||r.pickup)} → ${esc(r.dropoffName||r.dropoff)}</div><span class="small" style="color:#2563eb">View details →</span></button><label class="small" style="display:block;margin-top:8px">Ride status <select data-statusride="${esc(r.id)}" aria-label="Ride status for ${esc(r.passengerName||r.passenger||'reservation')}">${RIDE_STATUSES.map(st=>`<option value="${st}" ${rideStatus(r)===st?'selected':''}>${st}</option>`).join('')}</select></label><button data-eride="${esc(r.id)}" style="margin-top:7px">Edit</button> <button data-dride="${esc(r.id)}" style="margin-top:7px">Delete</button></div>`).join(''):'<p class="muted">No reservations match the selected filters.</p>';
  $('#personList').innerHTML=people.length?people.map(p=>`<div class="item"><strong>${esc(p.name)}</strong>${p.nickname?` <span class="badge">${esc(p.nickname)}</span>`:''}<div class="muted">${esc(p.defaultPlaceName||'No default pickup')}</div><button data-eperson="${p.id}" style="margin-top:7px">Edit</button> <button data-dperson="${p.id}" style="margin-top:7px">Delete</button></div>`).join(''):'<p class="muted">No saved people yet.</p>';
  $('#placeList').innerHTML=places.length?places.map(p=>`<div class="item"><strong>${esc(p.name)}</strong>${p.alias?` <span class="badge">${esc(p.alias)}</span>`:''}<div class="muted">${esc(p.address)}</div><button data-eplace="${p.id}" style="margin-top:7px">Edit</button> <button data-dplace="${p.id}" style="margin-top:7px">Delete</button></div>`).join(''):'<p class="muted">No saved places yet.</p>';
  const pop=(sel,arr,label)=>{let v=$(sel).value;$(sel).innerHTML=`<option value="">— ${label} —</option>`+arr.map(x=>`<option value="${x.id}">${esc(x.name)}</option>`).join('');$(sel).value=v};
