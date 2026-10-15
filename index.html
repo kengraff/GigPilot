@@ -31,7 +31,7 @@ button.primary{background:#111827;color:#fff;border-color:#111827;width:100%}.ac
 </style>
 </head>
 <body>
-<header><div class="muted">GigPilot · local-first</div><h1>v0.7.4 Smarter Reservation Editing</h1><div class="muted">Reservations, people, places and settings are stored on this device.</div></header>
+<header><div class="muted">GigPilot · local-first</div><h1>v0.7.5 Status-Aware Scheduling</h1><div class="muted">Reservations, people, places and settings are stored on this device.</div></header>
 
 <nav class="card tabs">
 <button class="tab active" data-tab="reservations">Reservations</button>
@@ -166,6 +166,7 @@ function reservationIsHistory(r,now=Date.now()){
 }
 const RIDE_STATUSES=["Scheduled","Completed","Canceled","No-show"];
 function rideStatus(r){return RIDE_STATUSES.includes(r.status)?r.status:"Scheduled"}
+function activeForScheduling(r){return rideStatus(r)==="Scheduled"}
 function reservationMatchesSearch(r,q){return [rideStatus(r),r.service,r.passengerName,r.passenger,r.date,r.time,r.pickupName,r.pickup,r.dropoffName,r.dropoff,r.notes].some(v=>String(v||'').toLowerCase().includes(q))}
 
 let departureChecks={};let departureRequestId=0;
@@ -240,7 +241,7 @@ function renderDailySchedule(rides){
  $('#dailyDate').textContent=fmtDate(target);$('#dailyCount').textContent=`${items.length} ${items.length===1?'ride':'rides'}`;
  $('#showToday').classList.toggle('selected',selectedScheduleDay==='today');$('#showTomorrow').classList.toggle('selected',selectedScheduleDay==='tomorrow');
  $('#showToday').setAttribute('aria-pressed',String(selectedScheduleDay==='today'));$('#showTomorrow').setAttribute('aria-pressed',String(selectedScheduleDay==='tomorrow'));
- let overlap=new Set();for(let i=1;i<items.length;i++){const a=items[i-1],b=items[i];if(Number(a.durationMin)>0&&rideStartMs(b)<rideStartMs(a)+Number(a.durationMin)*60000)overlap.add(a.id),overlap.add(b.id)}
+ let overlap=new Set(),activeItems=items.filter(activeForScheduling);for(let i=1;i<activeItems.length;i++){const a=activeItems[i-1],b=activeItems[i];if(Number(a.durationMin)>0&&rideStartMs(b)<rideStartMs(a)+Number(a.durationMin)*60000)overlap.add(a.id),overlap.add(b.id)}
  $('#dailyRides').innerHTML=items.length?items.map(r=>`<div class="daily-entry">${overlap.has(r.id)?'<div class="conflict-card"><strong>🚨 TIME OVERLAP — review schedule</strong></div>':''}<button type="button" class="ride-view" data-vride="${esc(r.id)}" aria-label="View ${esc(fmtTime(r.time))} reservation details"><div class="daily-time">${esc(fmtTime(r.time))} <span class="badge">${esc(r.service||'Other')}</span></div><strong>${esc(r.passengerName||r.passenger||'Reservation')}</strong><div class="muted small">${esc(r.pickupName||r.pickup||'Pickup not specified')} → ${esc(r.dropoffName||r.dropoff||'Destination not specified')}</div><div class="small">${esc(r.durationMin||'?')} min estimated${r.notes?' · 📝 Notes available':''}</div><span class="small" style="color:#2563eb">View details →</span></button><div class="departure-actions"><button type="button" data-depart="${esc(r.id)}">🚗 Check departure time</button></div><div id="depart-result-${esc(r.id)}" aria-live="polite">${renderDepartureCheck(r.id)}</div></div>`).join(''):'<p class="muted">No reservations scheduled for this day.</p>';
 }
 $('#showUpcomingRides').onclick=()=>{reservationListMode='upcoming';refresh()};
@@ -279,7 +280,7 @@ async function refresh(){
  const filteredHistory=history.filter(r=>reservationMatchesSearch(r,q)&&(!from||r.date>=from)&&(!to||r.date<=to)&&(!service||r.service===service));
  $('#historyMatches').textContent=`Showing ${filteredHistory.length} of ${history.length} history reservations`;
  const visible=reservationListMode==='history'?filteredHistory.reverse():upcoming;
- let overlapIds=new Set();for(let i=1;i<rides.length;i++){let a=rides[i-1],b=rides[i];if(a.date===b.date&&a.durationMin&&rideStartMs(b)<rideStartMs(a)+Number(a.durationMin)*60000)overlapIds.add(b.id)}
+ let overlapIds=new Set(),activeRides=rides.filter(activeForScheduling);for(let i=1;i<activeRides.length;i++){let a=activeRides[i-1],b=activeRides[i];if(a.date===b.date&&a.durationMin&&rideStartMs(b)<rideStartMs(a)+Number(a.durationMin)*60000)overlapIds.add(b.id)}
  $('#rideList').innerHTML=visible.length?visible.map(r=>`<div class="item">${overlapIds.has(r.id)?'<div class="conflict-card"><div class="conflict-title">🚨 CONFLICT · OVERLAP</div><strong>DO NOT ACCEPT</strong> — this reservation starts before the previous reservation is expected to end.</div>':''}<button type="button" class="ride-view" data-vride="${esc(r.id)}" aria-label="View reservation details"><span class="badge">${esc(r.service)}</span> <span class="badge">${esc(rideStatus(r))}</span> <strong>${esc(r.passengerName||r.passenger||'Reservation')}</strong><div>${fmtDate(r.date)} · ${fmtTime(r.time)}${r.durationMin?` · ${esc(r.durationMin)} min est.`:''}</div><div class="muted">${esc(r.pickupName||r.pickup)} → ${esc(r.dropoffName||r.dropoff)}</div><span class="small" style="color:#2563eb">View details →</span></button><label class="small" style="display:block;margin-top:8px">Ride status <select data-statusride="${esc(r.id)}" aria-label="Ride status for ${esc(r.passengerName||r.passenger||'reservation')}">${RIDE_STATUSES.map(st=>`<option value="${st}" ${rideStatus(r)===st?'selected':''}>${st}</option>`).join('')}</select></label><button data-eride="${esc(r.id)}" style="margin-top:7px">Edit</button> <button data-dride="${esc(r.id)}" style="margin-top:7px">Delete</button></div>`).join(''):'<p class="muted">No reservations yet.</p>';
  $('#personList').innerHTML=people.length?people.map(p=>`<div class="item"><strong>${esc(p.name)}</strong>${p.nickname?` <span class="badge">${esc(p.nickname)}</span>`:''}<div class="muted">${esc(p.defaultPlaceName||'No default pickup')}</div><button data-eperson="${p.id}" style="margin-top:7px">Edit</button> <button data-dperson="${p.id}" style="margin-top:7px">Delete</button></div>`).join(''):'<p class="muted">No saved people yet.</p>';
  $('#placeList').innerHTML=places.length?places.map(p=>`<div class="item"><strong>${esc(p.name)}</strong>${p.alias?` <span class="badge">${esc(p.alias)}</span>`:''}<div class="muted">${esc(p.address)}</div><button data-eplace="${p.id}" style="margin-top:7px">Edit</button> <button data-dplace="${p.id}" style="margin-top:7px">Delete</button></div>`).join(''):'<p class="muted">No saved places yet.</p>';
@@ -316,7 +317,46 @@ async function refresh(){
   finally{if(requestId===departureRequestId&&b.isConnected){b.disabled=false;b.textContent='🚗 Check departure time'}}
  });
  document.querySelectorAll('[data-vride]').forEach(b=>b.onclick=async()=>{const r=await getOne('reservations',b.dataset.vride);if(!r)return;const rows=[['Type',r.service],['Passenger',r.passengerName||r.passenger||'Not specified'],['Date',r.date?fmtDate(r.date):'Not specified'],['Pickup time',r.time?fmtTime(r.time):'Not specified'],['Estimated duration',r.durationMin?`${r.durationMin} minutes`:'Not specified'],['Pickup',r.pickupName||r.pickup||'Not specified'],['Destination',r.dropoffName||r.dropoff||'Not specified']];detailsContent.innerHTML=rows.map(([label,value])=>`<div class="detail-row"><span class="detail-label">${esc(label)}</span><div class="detail-value">${esc(value)}</div></div>`).join('')+`<div class="detail-notes"><span class="detail-label">📝 Notes / passenger instructions</span><div class="detail-value">${esc(r.notes||'No notes added.')}</div></div>`;detailsModal.dataset.rideId=r.id;detailsModal.classList.remove('hidden');detailsCloseBtn.focus();});
- document.querySelectorAll('[data-statusride]').forEach(sel=>sel.onchange=async()=>{if(reservationSaveInProgress){alert('Please wait for the reservation save to finish.');await refresh();return}const r=await getOne('reservations',sel.dataset.statusride);if(!r)return;const previous=rideStatus(r),next=sel.value;if(!RIDE_STATUSES.includes(next)||next===previous)return;if(!confirm('Change this reservation status from '+previous+' to '+next+'?')){sel.value=previous;return}try{await put('reservations',{...r,status:next,statusUpdatedAt:new Date().toISOString()});await refresh()}catch(err){alert('Status was not updated: '+err.message);await refresh()}});
+ document.querySelectorAll('[data-statusride]').forEach(sel=>sel.onchange=async()=>{
+ if(reservationSaveInProgress){alert('Please wait for the reservation save to finish.');await refresh();return}
+ const r=await getOne('reservations',sel.dataset.statusride);if(!r)return;
+ const previous=rideStatus(r),next=sel.value;
+ if(!RIDE_STATUSES.includes(next)||next===previous)return;
+ if(!confirm('Change this reservation status from '+previous+' to '+next+'?')){sel.value=previous;return}
+ const updated={...r,status:next,statusUpdatedAt:new Date().toISOString()};
+ // Inactive statuses are stored locally and excluded from future scheduling decisions.
+ if(next!=='Scheduled'){
+  try{await put('reservations',updated);await refresh();showSaveNotice('<div class="notice-title">✓ STATUS UPDATED</div><div>'+esc(next)+' reservations are excluded from active conflict checks.</div>','neutral',true)}
+  catch(err){alert('Status was not updated: '+err.message);await refresh()}
+  return;
+ }
+ // Re-activating a ride uses the same overlap and adjacent traffic guard as a reservation edit.
+ reservationSaveInProgress=true;showChecking();
+ try{
+  const existing=(await all('reservations')).filter(x=>x.id!==r.id&&x.date===r.date&&activeForScheduling(x)).sort((a,b)=>rideStartMs(a)-rideStartMs(b));
+  const start=rideStartMs(updated),duration=Number(updated.durationMin||0),end=start+duration*60000;
+  const overlap=duration>0?existing.find(x=>Number(x.durationMin)>0&&start<rideStartMs(x)+Number(x.durationMin)*60000&&end>rideStartMs(x)):null;
+  if(overlap){
+   const overlapEnd=rideStartMs(overlap)+Number(overlap.durationMin)*60000;
+   showGuard(updated,'🚨 SCHEDULE CONFLICT','DO NOT ACCEPT without reviewing this conflict.',`<p>Reactivating this reservation creates a ${Math.ceil((Math.min(end,overlapEnd)-Math.max(start,rideStartMs(overlap)))/60000)}-minute overlap with the ${esc(fmtTime(overlap.time))} reservation.</p>`);
+   return;
+  }
+  const before=existing.filter(x=>rideStartMs(x)<start).at(-1)||null,after=existing.find(x=>rideStartMs(x)>start)||null;
+  if(before||after){
+   const token=await getMapboxToken(),bufferRec=await getOne('settings','safetyBuffer'),buffer=Math.max(0,Number(bufferRec?.value??10));
+   if(!token){showGuard(updated,'⚪ TRAFFIC NOT CHECKED','GigPilot cannot call this SAFE.','<p>No Mapbox token is available. Choose Save Anyway only after reviewing the schedule.</p>');return}
+   const checks=[];
+   if(before)checks.push(await withDeadline(transitionCheck(before,updated,token,buffer),12000));
+   if(after)checks.push(await withDeadline(transitionCheck(updated,after,token,buffer),12000));
+   const problem=checks.find(x=>x.verdict==='CONFLICT')||checks.find(x=>x.verdict==='UNKNOWN')||checks.find(x=>x.verdict==='TIGHT');
+   if(problem){const title=problem.verdict==='CONFLICT'?'🚨 SCHEDULE CONFLICT':problem.verdict==='TIGHT'?'⚠️ TIGHT SCHEDULE':'⚪ TRAFFIC NOT CHECKED';showGuard(updated,title,problem.verdict==='CONFLICT'?'DO NOT ACCEPT without reviewing this conflict.':problem.verdict==='TIGHT'?'Your safety buffer does not fit.':'GigPilot cannot call this SAFE.',guardHtml(problem,checks,updated.id));return}
+   await put('reservations',updated);await refresh();showSaveNotice(safeResultHtml(checks,buffer,updated.id).replace('SAFE TO ACCEPT','STATUS UPDATED · SAFE'),'safe',true);
+  }else{
+   await put('reservations',updated);await refresh();showSaveNotice('<div class="notice-title">✓ STATUS UPDATED</div><div>No adjacent active reservation required a traffic transition check.</div>','neutral',true);
+  }
+ }catch(err){alert('Status was not updated. Traffic check failed: '+err.message);await refresh()}
+ finally{reservationSaveInProgress=false;hideChecking()}
+});
  document.querySelectorAll('[data-eride]').forEach(b=>b.onclick=async()=>{if(reservationSaveInProgress)return;let r=await getOne('reservations',b.dataset.eride);if(!r)return;dismissSaveNotice();rideForm.dataset.editId=r.id;service.value=r.service||'Other';ridePerson.value=r.passengerId||'';date.value=r.date||'';time.value=r.time||'';durationMin.value=r.durationMin||'';ridePickup.value=r.pickupPlaceId||'';rideDropoff.value=r.dropoffPlaceId||'';pickupText.value=r.pickupPlaceId?'':(r.pickup||r.pickupName||'');dropoffText.value=r.dropoffPlaceId?'':(r.dropoff||r.dropoffName||'');notes.value=r.notes||'';rideFormTitle.textContent='Edit reservation';rideForm.querySelector('button[type=submit]').textContent='Update reservation';cancelRideEdit.classList.remove('hidden');rideForm.scrollIntoView({behavior:'smooth',block:'start'});});
  document.querySelectorAll('[data-dride]').forEach(b=>b.onclick=async()=>{if(confirm('Delete this reservation?')){await del('reservations',b.dataset.dride);delete departureChecks[b.dataset.dride];saveDepartureRecovery();refresh()}});
  document.querySelectorAll('[data-dperson]').forEach(b=>b.onclick=async()=>{if(confirm('Delete this person? Existing reservations will remain.')){await del('people',b.dataset.dperson);refresh()}});
@@ -412,11 +452,12 @@ if(original){
    assertActive();setStage('Saving notes locally without traffic check');
    await put('reservations',newRide);saved=true;assertActive();
    resetRideEdit();await refresh();
-   showSaveNotice('<div class="notice-title">✓ RESERVATION UPDATED</div><div>Only notes or unchanged reservation details were saved. No route or traffic check was needed.</div>','neutral',true);
+   showSaveNotice('<div class="notice-title">✓ RESERVATION UPDATED</div><div>Reservation details saved. No scheduling fields changed, so no route or traffic check was needed.</div>','neutral',true);
    return;
  }
 }
-setStage('Reading existing reservations');let existing=(await all('reservations')).filter(r=>r.id!==newRide.id&&r.date===newRide.date&&r.durationMin).sort((a,b)=>rideStartMs(a)-rideStartMs(b));let ns=rideStartMs(newRide),ne=ns+Number(newRide.durationMin)*60000,conflict=null;for(const r of existing){let rs=rideStartMs(r),re=rs+Number(r.durationMin)*60000;if(ns<re&&ne>rs){conflict={r,rs,re};break}}if(conflict){let overlap=Math.ceil((Math.min(ne,conflict.re)-Math.max(ns,conflict.rs))/60000);assertActive();showGuard(newRide,'🚨 SCHEDULE CONFLICT','DO NOT ACCEPT without reviewing this conflict.',`<p><strong>Existing:</strong> ${esc(fmtTime(conflict.r.time))} for ${esc(conflict.r.durationMin)} min (ends about ${esc(new Date(conflict.re).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'}))})</p><p><strong>New:</strong> ${esc(fmtTime(newRide.time))} for ${esc(newRide.durationMin)} min</p><p style="font-size:20px"><strong>${overlap}-minute overlap.</strong></p>`);return}
+if(!activeForScheduling(newRide)){assertActive();await put('reservations',newRide);saved=true;assertActive();resetRideEdit();await refresh();showSaveNotice('<div class="notice-title">✓ INACTIVE RESERVATION UPDATED</div><div>No active scheduling check needed while this ride is '+esc(rideStatus(newRide))+'.</div>','neutral',true);return}
+setStage('Reading existing reservations');let existing=(await all('reservations')).filter(r=>r.id!==newRide.id&&r.date===newRide.date&&activeForScheduling(r)&&r.durationMin).sort((a,b)=>rideStartMs(a)-rideStartMs(b));let ns=rideStartMs(newRide),ne=ns+Number(newRide.durationMin)*60000,conflict=null;for(const r of existing){let rs=rideStartMs(r),re=rs+Number(r.durationMin)*60000;if(ns<re&&ne>rs){conflict={r,rs,re};break}}if(conflict){let overlap=Math.ceil((Math.min(ne,conflict.re)-Math.max(ns,conflict.rs))/60000);assertActive();showGuard(newRide,'🚨 SCHEDULE CONFLICT','DO NOT ACCEPT without reviewing this conflict.',`<p><strong>Existing:</strong> ${esc(fmtTime(conflict.r.time))} for ${esc(conflict.r.durationMin)} min (ends about ${esc(new Date(conflict.re).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'}))})</p><p><strong>New:</strong> ${esc(fmtTime(newRide.time))} for ${esc(newRide.durationMin)} min</p><p style="font-size:20px"><strong>${overlap}-minute overlap.</strong></p>`);return}
  setStage('Reading Mapbox settings');let token=await getMapboxToken(),bufRec=await getOne('settings','safetyBuffer'),buffer=Math.max(0,Number(bufRec?.value??10));let before=existing.filter(r=>rideStartMs(r)<ns).at(-1)||null,after=existing.find(r=>rideStartMs(r)>ns)||null;
  if(!token&&(before||after)){assertActive();showGuard(newRide,'⚪ TRAFFIC NOT CHECKED','GigPilot cannot call this SAFE.',`<p>No Mapbox token is available on this device.</p><p>Save a public token in Routing, or choose <strong>Save Anyway</strong> to override.</p>`);return}
  let checks=[];if(before){setStage('Checking traffic from previous ride');checks.push(await withDeadline(transitionCheck(before,newRide,token,buffer),12000));assertActive()}if(after){setStage('Checking traffic to next ride');checks.push(await withDeadline(transitionCheck(newRide,after,token,buffer),12000));assertActive()}let problem=checks.find(x=>x&&x.verdict==='CONFLICT')||checks.find(x=>x&&x.verdict==='UNKNOWN')||checks.find(x=>x&&x.verdict==='TIGHT');if(problem){let title=problem.verdict==='CONFLICT'?'🚨 SCHEDULE CONFLICT':problem.verdict==='TIGHT'?'⚠️ TIGHT SCHEDULE':'⚪ TRAFFIC NOT CHECKED',reason=problem.verdict==='CONFLICT'?'DO NOT ACCEPT without reviewing this conflict.':problem.verdict==='TIGHT'?'Your configured safety buffer does not fit.':'GigPilot cannot call this SAFE.';assertActive();showGuard(newRide,title,reason,guardHtml(problem,checks,newRide.id));return}
@@ -483,7 +524,7 @@ $('#evaluateBtn').onclick=async()=>{
  decisionResults.innerHTML='';decisionStatus.textContent='Checking schedule and live traffic…';evaluateBtn.disabled=true;
  try{
   let token=await getMapboxToken();if(!token)throw Error('Save your Mapbox public token in Routing first.');
-  let rides=(await all('reservations')).sort((a,b)=>rideStartMs(a)-rideStartMs(b));if(rides.length<2)throw Error('Add at least two reservations to evaluate the schedule.');
+  let rides=(await all('reservations')).filter(activeForScheduling).sort((a,b)=>rideStartMs(a)-rideStartMs(b));if(rides.length<2)throw Error('Add at least two reservations to evaluate the schedule.');
   let buffer=Math.max(0,Number(safetyBuffer.value)||10);await put('settings',{id:'safetyBuffer',value:buffer});let out=[];
   for(let i=1;i<rides.length;i++){
    let prev=rides[i-1],next=rides[i];
