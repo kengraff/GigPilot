@@ -31,7 +31,7 @@ button.primary{background:#111827;color:#fff;border-color:#111827;width:100%}.ac
 </style>
 </head>
 <body>
-<header><div class="muted">GigPilot · local-first</div><h1>v0.7.7 Clearer Conflict Feedback</h1><div class="muted">Reservations, people, places and settings are stored on this device.</div></header>
+<header><div class="muted">GigPilot · local-first</div><h1>v0.7.8 Traffic Reliability & Recovery</h1><div class="muted">Reservations, people, places and settings are stored on this device.</div></header>
 
 <nav class="card tabs">
 <button class="tab active" data-tab="reservations">Reservations</button>
@@ -481,15 +481,26 @@ $('#removeTokenBtn').onclick=async()=>{await del('settings','mapboxToken');mapbo
 function miles(m){return (m/1609.344).toFixed(1)}
 function mins(sec){return Math.max(1,Math.round(sec/60))}
 function withDeadline(promise,ms){let timer;return Promise.race([promise,new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error('Traffic check exceeded its time limit. Reservation not saved.')),ms)})]).finally(()=>clearTimeout(timer))}
+// Network failures must never be interpreted as successful traffic checks.
 async function fetchJsonWithTimeout(url,ms=10000){
  const controller=new AbortController();
- let timer;
+ const timeout=setTimeout(()=>controller.abort(),ms);
  try{
-  return await Promise.race([
-   (async()=>{const r=await fetch(url,{signal:controller.signal});const d=await r.json();return {r,d}})(),
-   new Promise((_,reject)=>{timer=setTimeout(()=>{controller.abort();reject(Error('Mapbox request or response timed out after '+Math.round(ms/1000)+' seconds.'))},ms)})
-  ]);
- }finally{clearTimeout(timer)}
+  let response;
+  try{response=await fetch(url,{signal:controller.signal,cache:'no-store'})}
+  catch(error){
+   if(controller.signal.aborted)throw Error('Mapbox timed out after '+Math.round(ms/1000)+' seconds. Traffic NOT verified. Retry when connected.');
+   throw Error('Mapbox connection failed. Check internet access and retry. Traffic NOT verified.');
+  }
+  let data;
+  try{data=await response.json()}
+  catch(error){throw Error('Mapbox returned an unreadable response (HTTP '+response.status+'). Traffic NOT verified. Retry.');}
+  if(!response.ok){
+   const reason=response.status===401||response.status===403?'Mapbox token was rejected. Check the public token in Routing.':response.status===429?'Mapbox rate limit reached. Wait and retry.':response.status>=500?'Mapbox service is temporarily unavailable. Retry later.':(data?.message||'Mapbox request failed.');
+   throw Error(reason+' (HTTP '+response.status+'). Traffic NOT verified.');
+  }
+  return {r:response,d:data};
+ }finally{clearTimeout(timeout)}
 }
 async function geocodeTemp(address,token){
  // Search Box supports both street addresses and POIs/business names (e.g. "Best Buy, Union City, CA").
@@ -507,7 +518,7 @@ async function trafficRoute(a,b,token){
  u.searchParams.set('overview','false');u.searchParams.set('alternatives','false');u.searchParams.set('access_token',token);
  const {r,d}=await fetchJsonWithTimeout(u);
  if(!r.ok||d.code!=='Ok')throw Error(d.message||d.code||`Routing failed (${r.status})`);
- if(!d.routes?.length)throw Error('No driving route found.');return d.routes[0];
+ if(!d.routes?.length)throw Error('No driving route found. Traffic NOT verified.');const route=d.routes[0];if(!Number.isFinite(route.duration)||route.duration<0||!Number.isFinite(route.distance)||route.distance<0)throw Error('Mapbox returned invalid route measurements. Traffic NOT verified.');return route;
 }
 $('#routeBtn').onclick=async()=>{
  routeResult.innerHTML='';routeStatus.textContent='Checking addresses and traffic…';routeBtn.disabled=true;
@@ -520,7 +531,7 @@ $('#routeBtn').onclick=async()=>{
   let typical=Number.isFinite(r.duration_typical)?mins(r.duration_typical):null,traffic=mins(r.duration),delta=typical?traffic-typical:null;
   routeStatus.textContent='✓ Mapbox traffic route received.';
   routeResult.innerHTML=`<div class="item"><strong>${traffic} min · ${miles(r.distance)} mi</strong><div class="muted">${esc(g1.label)} → ${esc(g2.label)}</div>${typical?`<div class="small" style="margin-top:6px">Typical: ${typical} min${delta>0?` · Traffic adds about ${delta} min`:delta<0?` · About ${Math.abs(delta)} min faster than typical`:' · About typical'}</div>`:''}<div class="badge" style="margin-top:8px">TRAFFIC CHECKED · NO SAFETY VERDICT YET</div></div>`;
- }catch(x){routeStatus.textContent='⚠️ '+x.message;routeResult.innerHTML=''}finally{routeBtn.disabled=false}
+ }catch(x){routeStatus.textContent='⚠️ TRAFFIC NOT VERIFIED — '+x.message+' Tap Check Route again to retry.';routeResult.innerHTML='<div class="departure-warning">No traffic result is available from this attempt. Do not assume this route is safe.</div>'}finally{routeBtn.disabled=false}
 };
 
 
@@ -542,9 +553,9 @@ $('#evaluateBtn').onclick=async()=>{
    try{
     let [a,b]=await Promise.all([geocodeTemp(prev.dropoff,token),geocodeTemp(next.pickup,token)]),route=await trafficRoute(a.coord,b.coord,token),travel=mins(route.duration),verdict=gap<travel?'CONFLICT':gap<travel+buffer?'TIGHT':'SAFE',margin=gap-travel-buffer;
     out.push(`<div class="verdict-card verdict-${verdict.toLowerCase()}"><div class="verdict-title">${verdict==='CONFLICT'?'🚨 ':verdict==='TIGHT'?'⚠️ ':verdict==='SAFE'?'✓ ':''}${verdict}${verdict==='CONFLICT'?' · DO NOT ACCEPT':''}</div><strong>${esc(prev.passengerName||prev.service)} → ${esc(next.passengerName||next.service)}</strong><div>${fmtDate(next.date)} · next pickup ${fmtTime(next.time)}</div><div>Previous ride ends about ${new Date(prevEnd).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'})} · Gap ${gap} min · Traffic drive ${travel} min · Buffer ${buffer} min</div><div class="small" style="margin-top:5px">${verdict==='SAFE'?`About ${Math.max(0,margin)} min beyond your buffer.`:verdict==='TIGHT'?`Drive is possible in this traffic snapshot, but your full ${buffer}-min buffer does not fit.`:`Not enough time to drive from the previous drop-off to this pickup in the current traffic snapshot.`}</div></div>`)
-   }catch(x){out.push(`<div class="item"><strong>UNKNOWN</strong><div class="muted">Route check failed: ${esc(x.message)}</div></div>`)}
+   }catch(x){out.push(`<div class="item"><strong>⚠️ TRAFFIC NOT VERIFIED — UNKNOWN</strong><div class="muted">Route check failed: ${esc(x.message)}. Retry the evaluation before relying on this schedule.</div></div>`)}
   }
-  decisionResults.innerHTML=out.join('');decisionStatus.textContent='✓ Schedule evaluated using current Mapbox traffic. Recheck future rides closer to departure.';
+  decisionResults.innerHTML=out.join('');decisionStatus.textContent=out.some(x=>x.includes('TRAFFIC NOT VERIFIED'))?'⚠️ Some transitions were NOT verified. Retry before relying on this schedule.':'✓ Schedule evaluated using current Mapbox traffic. Recheck future rides closer to departure.';
  }catch(x){decisionStatus.textContent='⚠️ '+x.message}finally{evaluateBtn.disabled=false}
 };
 $('#backupBtn').onclick=async()=>{let payload={format:'GigPilot Backup',version:2,createdAt:new Date().toISOString(),reservations:await all('reservations'),people:await all('people'),places:await all('places'),settings:(await all('settings')).filter(x=>x.id!=='mapboxToken')};dl(`GigPilot_Backup_${new Date().toISOString().slice(0,10)}.gpb`,JSON.stringify(payload,null,2),'application/json');backupStatus.textContent='✓ Complete GigPilot backup created.'};
