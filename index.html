@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#111827">
 <link rel="manifest" href="manifest.webmanifest">
-<title>GigPilot v0.7.2</title>
+<title>GigPilot v0.7.12</title>
 <style>
 :root{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#111827;background:#f8fafc}
 *{box-sizing:border-box}body{margin:0;padding:16px;max-width:900px;margin:auto}
@@ -31,7 +31,7 @@ button.primary{background:#111827;color:#fff;border-color:#111827;width:100%}.ac
 </style>
 </head>
 <body>
-<header><div class="muted">GigPilot · local-first</div><h1>v0.7.11 Scheduling Safety Hardening</h1><div class="muted">Reservations, people, places and settings are stored on this device.</div></header>
+<header><div class="muted">GigPilot · local-first</div><h1>v0.7.12 Mapbox Token Protection</h1><div class="muted">Reservations, people, places and settings are stored on this device.</div></header>
 
 <nav class="card tabs">
 <button class="tab active" data-tab="reservations">Reservations</button>
@@ -523,7 +523,7 @@ const ns=rideStartMs(newRide);
 };
 
 async function getMapboxToken(){let x=await getOne('settings','mapboxToken');return x?.value||''}
-async function showTokenStatus(){let t=await getMapboxToken();mapboxToken.value=t;tokenStatus.textContent=t?'✓ Public Mapbox token saved locally on this device.':'No Mapbox token saved yet.'}
+async function showTokenStatus(){let t=await getMapboxToken();mapboxToken.value=t;tokenStatus.textContent=t?'✓ Public Mapbox token saved locally on this device.':'⚠️ No Mapbox token saved on this device. Traffic and routing cannot be verified until a token is saved.'}
 $('#saveTokenBtn').onclick=async()=>{let t=mapboxToken.value.trim();if(!t.startsWith('pk.')){tokenStatus.textContent='⚠️ Enter a Mapbox public token beginning with pk.';return}await put('settings',{id:'mapboxToken',value:t});tokenStatus.textContent='✓ Public Mapbox token saved locally on this device.'};
 $('#removeTokenBtn').onclick=async()=>{await del('settings','mapboxToken');mapboxToken.value='';tokenStatus.textContent='Mapbox token removed from this device.'};
 function miles(m){return (m/1609.344).toFixed(1)}
@@ -609,7 +609,7 @@ $('#evaluateBtn').onclick=async()=>{
 $('#backupBtn').onclick=async()=>{let payload={format:'GigPilot Backup',version:2,createdAt:new Date().toISOString(),reservations:await all('reservations'),people:await all('people'),places:await all('places'),settings:(await all('settings')).filter(x=>x.id!=='mapboxToken')};dl(`GigPilot_Backup_${new Date().toISOString().slice(0,10)}.gpb`,JSON.stringify(payload,null,2),'application/json');backupStatus.textContent='✓ Complete GigPilot backup created.'};
 $('#csvBtn').onclick=async()=>{let rows=await all('reservations'),cols=['status','service','passengerName','date','time','pickupName','pickup','dropoffName','dropoff','notes'],q=v=>'"'+String(v??'').replaceAll('"','""')+'"';dl(`GigPilot_Reservations_${new Date().toISOString().slice(0,10)}.csv`,[cols.join(','),...rows.map(r=>cols.map(c=>q(c==='status'?rideStatus(r):r[c])).join(','))].join('\n'),'text/csv');backupStatus.textContent='✓ CSV exported.'};
 $('#restoreBtn').onclick=()=>restoreFile.click();
-$('#restoreFile').onchange=async e=>{let f=e.target.files[0];if(!f)return;try{let d=JSON.parse(await f.text());if(d.format!=='GigPilot Backup'||!Array.isArray(d.reservations))throw Error('Not a valid GigPilot backup');let summary=`${d.reservations.length} reservation(s), ${(d.people||[]).length} people, ${(d.places||[]).length} places`;if(!confirm(`Restore ${summary}? This replaces current GigPilot data.`))return;for(const s of stores)await clear(s);for(const r of d.reservations)await put('reservations',r);for(const p of d.people||[])await put('people',p);for(const p of d.places||[])await put('places',p);for(const s of d.settings||[])await put('settings',s);backupStatus.textContent='✓ GigPilot backup restored.';await refresh()}catch(x){alert('Restore failed: '+x.message)}finally{e.target.value=''}};
+$('#restoreFile').onchange=async e=>{let f=e.target.files[0];if(!f)return;try{let d=JSON.parse(await f.text());if(d.format!=='GigPilot Backup'||!Array.isArray(d.reservations))throw Error('Not a valid GigPilot backup');let summary=`${d.reservations.length} reservation(s), ${(d.people||[]).length} people, ${(d.places||[]).length} places`;if(!confirm(`Restore ${summary}? This replaces reservations, people, places and other settings. Your existing Mapbox token will be preserved.`))return;const existingToken=await getMapboxToken();for(const s of stores)await clear(s);if(existingToken)await put('settings',{id:'mapboxToken',value:existingToken});for(const r of d.reservations)await put('reservations',r);for(const p of d.people||[])await put('people',p);for(const p of d.places||[])await put('places',p);for(const s of d.settings||[])await put('settings',s);backupStatus.textContent='✓ GigPilot backup restored. '+(existingToken?'Existing Mapbox token preserved.':'No existing Mapbox token was found; enter one in Routing to enable traffic.');await refresh();await showTokenStatus();await loadBuffer()}catch(x){alert('Restore failed: '+x.message)}finally{e.target.value=''}};
 (async()=>{await openDB();await restoreDepartureRecovery();await refresh();updateDepartureCountdowns();await showTokenStatus();await loadBuffer();if('serviceWorker'in navigator)navigator.serviceWorker.register('./sw.js').catch(()=>{})})();
 </script>
 </body></html>
