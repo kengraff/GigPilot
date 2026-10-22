@@ -31,7 +31,7 @@ button.primary{background:#111827;color:#fff;border-color:#111827;width:100%}.ac
 </style>
 </head>
 <body>
-<header><div class="muted">GigPilot · local-first</div><h1>v0.7.10 Unknown Duration Safety</h1><div class="muted">Reservations, people, places and settings are stored on this device.</div></header>
+<header><div class="muted">GigPilot · local-first</div><h1>v0.7.11 Scheduling Safety Hardening</h1><div class="muted">Reservations, people, places and settings are stored on this device.</div></header>
 
 <nav class="card tabs">
 <button class="tab active" data-tab="reservations">Reservations</button>
@@ -241,7 +241,7 @@ function renderDailySchedule(rides){
  $('#dailyDate').textContent=fmtDate(target);$('#dailyCount').textContent=`${items.length} ${items.length===1?'ride':'rides'}`;
  $('#showToday').classList.toggle('selected',selectedScheduleDay==='today');$('#showTomorrow').classList.toggle('selected',selectedScheduleDay==='tomorrow');
  $('#showToday').setAttribute('aria-pressed',String(selectedScheduleDay==='today'));$('#showTomorrow').setAttribute('aria-pressed',String(selectedScheduleDay==='tomorrow'));
- let overlap=new Set(),activeItems=items.filter(activeForScheduling);for(let i=1;i<activeItems.length;i++){const a=activeItems[i-1],b=activeItems[i];if(rideStartMs(b)===rideStartMs(a)||(Number(a.durationMin)>0&&rideStartMs(b)<rideStartMs(a)+Number(a.durationMin)*60000))overlap.add(a.id),overlap.add(b.id)}
+ let overlap=new Set(),activeItems=items.filter(activeForScheduling);for(let i=0;i<activeItems.length;i++)for(let j=i+1;j<activeItems.length;j++){const a=activeItems[i],b=activeItems[j],as=rideStartMs(a),bs=rideStartMs(b),ad=Number(a.durationMin),bd=Number(b.durationMin);if(as===bs||(ad>0&&bd>0&&as<bs+bd*60000&&bs<as+ad*60000))overlap.add(a.id),overlap.add(b.id)}
  $('#dailyRides').innerHTML=items.length?items.map(r=>`<div class="daily-entry">${overlap.has(r.id)?'<div class="conflict-card"><strong>🚨 TIME OVERLAP — review schedule</strong></div>':''}<button type="button" class="ride-view" data-vride="${esc(r.id)}" aria-label="View ${esc(fmtTime(r.time))} reservation details"><div class="daily-time">${esc(fmtTime(r.time))} <span class="badge">${esc(r.service||'Other')}</span></div><strong>${esc(r.passengerName||r.passenger||'Reservation')}</strong><div class="muted small">${esc(r.pickupName||r.pickup||'Pickup not specified')} → ${esc(r.dropoffName||r.dropoff||'Destination not specified')}</div><div class="small">${esc(r.durationMin||'?')} min estimated${r.notes?' · 📝 Notes available':''}</div><span class="small" style="color:#2563eb">View details →</span></button><div class="departure-actions"><button type="button" data-depart="${esc(r.id)}">🚗 Check departure time</button></div><div id="depart-result-${esc(r.id)}" aria-live="polite">${renderDepartureCheck(r.id)}</div></div>`).join(''):'<p class="muted">No reservations scheduled for this day.</p>';
 }
 $('#showUpcomingRides').onclick=()=>{reservationListMode='upcoming';refresh()};
@@ -342,15 +342,8 @@ async function refresh(){
  try{
   const existing=(await all('reservations')).filter(x=>x.id!==r.id&&activeForScheduling(x)).sort((a,b)=>rideStartMs(a)-rideStartMs(b));
   const start=rideStartMs(updated),duration=Number(updated.durationMin||0),end=start+duration*60000;
-  if(!(duration>0)){showGuard(updated,'⚪ DURATION NOT VERIFIED','GigPilot cannot call this SAFE.','<p>This reservation has no valid estimated duration. Update its duration before reactivating, or choose Save Anyway to override.</p>');return}
-  const unknown=existing.find(x=>!(Number(x.durationMin)>0)&&rideStartMs(x)<=start);
-  const overlap=existing.find(x=>rideStartMs(x)===start||(Number(x.durationMin)>0&&start<rideStartMs(x)+Number(x.durationMin)*60000&&end>rideStartMs(x)));
-  if(!overlap&&unknown){showGuard(updated,'⚪ DURATION NOT VERIFIED','GigPilot cannot call this SAFE.',`<p>The existing ${esc(fmtTime(unknown.time))} reservation has no estimated duration, so the schedule cannot be verified. Update that reservation or choose Save Anyway to override.</p>`);return} 
-  if(overlap){
-   const known=Number(overlap.durationMin)>0,overlapEnd=rideStartMs(overlap)+Number(overlap.durationMin)*60000;
-   showGuard(updated,'🚨 SCHEDULE CONFLICT','DO NOT ACCEPT without reviewing this conflict.',known?`<p>Reactivating this reservation creates a ${Math.ceil((Math.min(end,overlapEnd)-Math.max(start,rideStartMs(overlap)))/60000)}-minute overlap with the ${esc(fmtTime(overlap.time))} reservation.</p>`:`<p>Both reservations start at ${esc(fmtTime(updated.time))}. The existing ride has no estimated duration; the overlap length cannot be calculated.</p>`);
-   return;
-  }
+  const risk=schedulingRisk(updated,existing);
+  if(risk){showSchedulingRisk(updated,risk);return}
   const before=existing.filter(x=>rideStartMs(x)<start).at(-1)||null,after=existing.find(x=>rideStartMs(x)>start)||null;
   if(before||after){
    const token=await getMapboxToken(),bufferRec=await getOne('settings','safetyBuffer'),buffer=Math.max(0,Number(bufferRec?.value??10));
@@ -416,11 +409,36 @@ function closeConflictModal(){conflictModal.classList.add('hidden');pendingConfl
 function showGuard(ride,title,reason,html){pendingConflictRide=ride;conflictTitle.textContent=title;document.querySelector('#conflictModal .reason').textContent=reason;conflictDetail.innerHTML=html;conflictModal.classList.remove('hidden')}
 $('#cancelConflictBtn').onclick=()=>closeConflictModal();
 $('#saveAnywayBtn').onclick=async()=>{if(!pendingConflictRide)return;let r=pendingConflictRide;closeConflictModal();await put('reservations',r);resetRideEdit();await refresh();showSaveNotice('<div class="notice-title">⚠️ SAVED WITH WARNING OVERRIDE</div><div>Review this reservation carefully.</div>','warning',false)};
+// Shared, conservative interval safety evaluation for both saves and status reactivation.
+function schedulingRisk(candidate, existing){
+ const start=rideStartMs(candidate), duration=Number(candidate.durationMin), end=start+duration*60000;
+ if(!Number.isFinite(start))return {type:'UNKNOWN',reason:'Reservation date or pickup time is invalid.'};
+ // Exact same-time pickup is a definite conflict, even if either duration is unknown.
+ const same=existing.find(r=>rideStartMs(r)===start);
+ if(same)return {type:'CONFLICT',ride:same,reason:'Both Scheduled reservations have the same pickup time. This is a conflict even when a duration is missing.'};
+ if(!(Number.isFinite(duration)&&duration>0))return {type:'UNKNOWN',reason:'This reservation has no valid estimated duration.'};
+ for(const r of existing){
+  const rs=rideStartMs(r),d=Number(r.durationMin);
+  if(Number.isFinite(d)&&d>0&&start<rs+d*60000&&end>rs)return {type:'CONFLICT',ride:r,reason:'Scheduled ride time intervals overlap.'};
+ }
+ // Any earlier unknown-duration ride may still be underway. A later unknown-duration
+ // ride cannot be declared safe either, since its own schedule is unverified.
+ const unknown=existing.find(r=>!(Number(r.durationMin)>0)&&rideStartMs(r)<start);
+ if(unknown)return {type:'UNKNOWN',ride:unknown,reason:'Another Scheduled reservation has no valid estimated duration. The full schedule cannot be verified.'};
+ return null;
+}
+function showSchedulingRisk(candidate,risk){
+ const title=risk.type==='CONFLICT'?'🚨 SCHEDULE CONFLICT':'⚠️ DURATION NOT VERIFIED';
+ const reason=risk.type==='CONFLICT'?'DO NOT ACCEPT without reviewing this conflict.':'GigPilot cannot call this SAFE.';
+ const other=risk.ride?`<p>Other reservation: ${esc(fmtDate(risk.ride.date))} at ${esc(fmtTime(risk.ride.time))}.</p>`:'';
+ showGuard(candidate,title,reason,`<p>${esc(risk.reason)}</p>${other}<p>Choose Cancel to leave the schedule unchanged. Save Anyway is an unverified override, not a safe verdict.</p>`);
+}
 async function transitionCheck(prev,next,token,buffer){
  if(!prev||!next)return null;
  let prevEnd=rideStartMs(prev)+Number(prev.durationMin||0)*60000,gap=Math.round((rideStartMs(next)-prevEnd)/60000);
  if(rideStartMs(prev)===rideStartMs(next))return {verdict:'CONFLICT',kind:'SAME TIME',gap:0,prevEnd,prev,next};
  if(!(Number(prev.durationMin)>0))return {verdict:'UNKNOWN',kind:'MISSING DURATION',gap,prevEnd,prev,next,error:'Previous reservation has no valid estimated duration.'};
+ if(!(Number(next.durationMin)>0))return {verdict:'UNKNOWN',kind:'MISSING DURATION',gap,prevEnd,prev,next,error:'Next reservation has no valid estimated duration.'};
  if(gap<0)return {verdict:'CONFLICT',kind:'OVERLAP',gap,prevEnd,prev,next};
  if(!prev.dropoff||!next.pickup)return {verdict:'UNKNOWN',kind:'MISSING ADDRESS',gap,prevEnd,prev,next};
  try{let [a,b]=await Promise.all([geocodeTemp(prev.dropoff,token),geocodeTemp(next.pickup,token)]),route=await trafficRoute(a.coord,b.coord,token),travel=mins(route.duration),verdict=gap<travel?'CONFLICT':gap<travel+buffer?'TIGHT':'SAFE';return {verdict,kind:'TRAFFIC',gap,travel,buffer,prevEnd,prev,next}}
@@ -490,9 +508,11 @@ if(original){
  }
 }
 if(!activeForScheduling(newRide)){assertActive();await put('reservations',newRide);saved=true;assertActive();resetRideEdit();await refresh();showSaveNotice('<div class="notice-title">✓ INACTIVE RESERVATION UPDATED · NO TRAFFIC REQUEST</div><div>No active scheduling check or Mapbox request needed while this ride is '+esc(rideStatus(newRide))+'.</div>','neutral',true);return}
-if(!(Number(newRide.durationMin)>0)){assertActive();showGuard(newRide,'⚪ DURATION NOT VERIFIED','GigPilot cannot call this SAFE.','<p>Enter a valid estimated ride duration before checking conflicts, or choose Save Anyway to override.</p>');return}
-setStage('Reading existing reservations');let existing=(await all('reservations')).filter(r=>r.id!==newRide.id&&activeForScheduling(r)).sort((a,b)=>rideStartMs(a)-rideStartMs(b));let ns=rideStartMs(newRide),ne=ns+Number(newRide.durationMin)*60000,conflict=null;for(const r of existing){let rs=rideStartMs(r),re=rs+Number(r.durationMin)*60000;if(rs===ns||(Number(r.durationMin)>0&&ns<re&&ne>rs)){conflict={r,rs,re};break}}if(conflict){let known=Number(conflict.r.durationMin)>0,overlap=known?Math.ceil((Math.min(ne,conflict.re)-Math.max(ns,conflict.rs))/60000):null;assertActive();showGuard(newRide,'🚨 SCHEDULE CONFLICT','DO NOT ACCEPT without reviewing this conflict.',known?`<p><strong>Existing:</strong> ${esc(fmtTime(conflict.r.time))} for ${esc(conflict.r.durationMin)} min (ends about ${esc(new Date(conflict.re).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'}))})</p><p><strong>New:</strong> ${esc(fmtTime(newRide.time))} for ${esc(newRide.durationMin)} min</p><p style="font-size:20px"><strong>${overlap}-minute overlap.</strong></p>`:`<p><strong>Both Scheduled reservations start at ${esc(fmtTime(newRide.time))}.</strong></p><p>The existing reservation has no estimated duration, so the overlap length is unknown. This is a scheduling conflict, not a safe transition.</p>`);return}
-let unknownEarlier=existing.find(r=>!(Number(r.durationMin)>0)&&rideStartMs(r)<ns);if(unknownEarlier){assertActive();showGuard(newRide,'⚪ DURATION NOT VERIFIED','GigPilot cannot call this SAFE.',`<p>The existing ${esc(fmtTime(unknownEarlier.time))} reservation has no estimated duration. Its end time cannot be verified, so GigPilot cannot confirm this new reservation is safe.</p>`);return}
+setStage('Reading existing reservations');
+let existing=(await all('reservations')).filter(r=>r.id!==newRide.id&&activeForScheduling(r)).sort((a,b)=>rideStartMs(a)-rideStartMs(b));
+const risk=schedulingRisk(newRide,existing);
+if(risk){assertActive();showSchedulingRisk(newRide,risk);return}
+const ns=rideStartMs(newRide);
  setStage('Reading Mapbox settings');let token=await getMapboxToken(),bufRec=await getOne('settings','safetyBuffer'),buffer=Math.max(0,Number(bufRec?.value??10));let before=existing.filter(r=>rideStartMs(r)<ns).at(-1)||null,after=existing.find(r=>rideStartMs(r)>ns)||null;
  if(!token&&(before||after)){assertActive();showGuard(newRide,'⚪ TRAFFIC NOT CHECKED','GigPilot cannot call this SAFE.',`<p>No Mapbox token is available on this device.</p><p>Save a public token in Routing, or choose <strong>Save Anyway</strong> to override.</p>`);return}
  let checks=[];if(before){setStage('Checking traffic from previous ride');checks.push(await withDeadline(transitionCheck(before,newRide,token,buffer),12000));assertActive()}if(after){setStage('Checking traffic to next ride');checks.push(await withDeadline(transitionCheck(newRide,after,token,buffer),12000));assertActive()}let problem=checks.find(x=>x&&x.verdict==='CONFLICT')||checks.find(x=>x&&x.verdict==='UNKNOWN')||checks.find(x=>x&&x.verdict==='TIGHT');if(problem){let title=problem.verdict==='CONFLICT'?'🚨 SCHEDULE CONFLICT':problem.verdict==='TIGHT'?'⚠️ TIGHT SCHEDULE':'⚪ TRAFFIC NOT CHECKED',reason=problem.verdict==='CONFLICT'?'DO NOT ACCEPT without reviewing this conflict.':problem.verdict==='TIGHT'?'Your configured safety buffer does not fit.':'GigPilot cannot call this SAFE.';assertActive();showGuard(newRide,title,reason,guardHtml(problem,checks,newRide.id));return}
