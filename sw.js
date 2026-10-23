@@ -1,6 +1,6 @@
-// GigPilot v0.7.13: cache only first-party application shell files.
+// GigPilot v0.7.14: cache only first-party application shell files.
 // Mapbox and all other external requests bypass the service worker cache.
-const CACHE='gigpilot-v0713';
+const CACHE='gigpilot-v0714';
 const ASSETS=['./','./index.html','./manifest.webmanifest'];
 const shellPaths=new Set(ASSETS.map(path=>new URL(path,self.registration.scope).pathname));
 self.addEventListener('install',event=>{
